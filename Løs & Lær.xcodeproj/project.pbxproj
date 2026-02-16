@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		9E5E106B2F2612C300F961AF /* Untitled.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E5E106A2F2612C100F961AF /* Untitled.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		9E01B7A22F104AA000C59315 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,9 +28,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		9E01B7942F104A9E00C59315 /* Løs & Lær.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Løs & Lær.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		9E01B7A12F104AA000C59315 /* Løs & LærTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Løs & LærTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		9E01B7AB2F104AA000C59315 /* Løs & LærUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Løs & LærUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9E5E106A2F2612C100F961AF /* Untitled.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Untitled.swift; sourceTree = "<group>"; };
+		9E5E107E2F2BB3A700F961AF /* Løs & Lær.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Løs & Lær.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9E5E107F2F2BB3A700F961AF /* Løs & LærTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Løs & LærTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9E5E10802F2BB3A700F961AF /* Løs & LærUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Løs & LærUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -78,18 +83,11 @@
 				9E01B7962F104A9E00C59315 /* Løs & Lær */,
 				9E01B7A42F104AA000C59315 /* Løs & LærTests */,
 				9E01B7AE2F104AA000C59315 /* Løs & LærUITests */,
-				9E01B7952F104A9E00C59315 /* Products */,
+				9E5E106A2F2612C100F961AF /* Untitled.swift */,
+				9E5E107E2F2BB3A700F961AF /* Løs & Lær.app */,
+				9E5E107F2F2BB3A700F961AF /* Løs & LærTests.xctest */,
+				9E5E10802F2BB3A700F961AF /* Løs & LærUITests.xctest */,
 			);
-			sourceTree = "<group>";
-		};
-		9E01B7952F104A9E00C59315 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				9E01B7942F104A9E00C59315 /* Løs & Lær.app */,
-				9E01B7A12F104AA000C59315 /* Løs & LærTests.xctest */,
-				9E01B7AB2F104AA000C59315 /* Løs & LærUITests.xctest */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -114,7 +112,7 @@
 			packageProductDependencies = (
 			);
 			productName = "Løs & Lær";
-			productReference = 9E01B7942F104A9E00C59315 /* Løs & Lær.app */;
+			productReference = 9E5E107E2F2BB3A700F961AF /* Løs & Lær.app */;
 			productType = "com.apple.product-type.application";
 		};
 		9E01B7A02F104AA000C59315 /* Løs & LærTests */ = {
@@ -137,7 +135,7 @@
 			packageProductDependencies = (
 			);
 			productName = "Løs & LærTests";
-			productReference = 9E01B7A12F104AA000C59315 /* Løs & LærTests.xctest */;
+			productReference = 9E5E107F2F2BB3A700F961AF /* Løs & LærTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		9E01B7AA2F104AA000C59315 /* Løs & LærUITests */ = {
@@ -160,7 +158,7 @@
 			packageProductDependencies = (
 			);
 			productName = "Løs & LærUITests";
-			productReference = 9E01B7AB2F104AA000C59315 /* Løs & LærUITests.xctest */;
+			productReference = 9E5E10802F2BB3A700F961AF /* Løs & LærUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -196,7 +194,7 @@
 			mainGroup = 9E01B78B2F104A9E00C59315;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 9E01B7952F104A9E00C59315 /* Products */;
+			productRefGroup = 9E01B78B2F104A9E00C59315;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -236,6 +234,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9E5E106B2F2612C300F961AF /* Untitled.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -395,13 +394,14 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7466QS2GNB;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIStatusBarStyle = "";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -426,13 +426,14 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7466QS2GNB;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIStatusBarStyle = "";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
