@@ -304,10 +304,6 @@ struct ClockGameView: View {
                 if showErrorFlash {
                     Color.red.opacity(0.3).ignoresSafeArea()
                 }
-                
-                if debugMode {
-                    debugOverlay
-                }
             }
             .onAppear {
                 speechManager.preload()
@@ -451,7 +447,7 @@ struct ClockGameView: View {
             aiFiles.append(contentsOf: aiFilesForTime)
             segmentTexts.append(contentsOf: textsForTime)
 
-            AudioVoiceManager.shared.debugLogging = true
+            AudioVoiceManager.shared.debugLogging = false
 
             AudioVoiceManager.shared.speakSequencePerSegment(
                 aiFiles: aiFiles,
@@ -466,7 +462,7 @@ struct ClockGameView: View {
             showErrorFlash = true
 
             // Afspil kort forkert‑lyd (AI) med TTS fallback
-            AudioVoiceManager.shared.debugLogging = true
+            AudioVoiceManager.shared.debugLogging = false
             AudioVoiceManager.shared.speakWithFallback(aiFile: "clock_wrong") {
                 // fallback TTS (hvis speakWithFallback ikke selv håndterer TTS)
                 speechManager.speak("Det var ikke rigtigt. Prøv igen.") { }
@@ -503,7 +499,7 @@ struct ClockGameView: View {
 
     private func speakIntro() {
         // Midlertidig debug‑log for at se hvad der afspilles
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
 
         // Forsøg at afspille AI‑filen "clock_intro" (mp3/m4a/wav via urlForResource)
         AudioVoiceManager.shared.speakWithFallback(aiFile: "clock_intro") {
@@ -605,7 +601,7 @@ struct ClockGameView: View {
 
     private func speakQuestion() {
         // Debug: se hvad der forsøges afspillet
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
 
         let (aiFiles, segmentTexts) = segmentsForQuestion(currentQuestion.target)
 
@@ -680,21 +676,6 @@ struct ClockGameView: View {
         }
     }
 
-
-
-    private var debugOverlay: some View {
-        VStack {
-            Text("DEBUG")
-                .font(.headline)
-                .foregroundColor(.red)
-            Text("Target: \(currentQuestion.target.digitalLabel)")
-                .font(.caption)
-        }
-        .padding()
-        .background(Color.black.opacity(0.1))
-        .cornerRadius(8)
-        .padding()
-    }
 }
 
 // MARK: - Preview

@@ -52,9 +52,9 @@ struct HomeView: View {
                     selectedGame = .ticTacToe
                 }
 
-                // ⭐ TOM PLADS – gør at Mix-ikonet lander i midten
-                Color.clear
-                    .frame(width: 170, height: 170)
+                IconTileButton(iconName: "icon_MemoryMatchView_animal") {
+                    selectedGame = .memoryMatch
+                }
 
                 // ⭐ Mix alle spil – nu perfekt centreret
                 IconTileButton(iconName: "icon_all_games") {

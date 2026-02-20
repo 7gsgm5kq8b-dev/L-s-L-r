@@ -271,9 +271,6 @@ struct AnimalGameView: View {
                     Color.red.opacity(0.3).ignoresSafeArea()
                 }
                 dragLineView
-                if debugMode, gameStarted {
-                    debugOverlay(outerGeo: outerGeo)
-                }
             }
             .contentShape(Rectangle())
             .gesture(dragGesture(in: outerGeo))
@@ -533,44 +530,6 @@ struct AnimalGameView: View {
         }
     }
 
-    // MARK: - Debug Overlay
-    private func debugOverlay(outerGeo: GeometryProxy) -> some View {
-        ZStack {
-            ForEach(currentQuestion.options) { option in
-                if let frame = answerFramesGlobal[option.id] {
-                    Rectangle()
-                        .stroke(Color.red, lineWidth: 2)
-                        .frame(width: frame.width, height: frame.height)
-                        .position(x: frame.midX, y: frame.midY)
-
-                    let hitFrame = frame.insetBy(dx: -hitPadding, dy: -hitPadding)
-                    Rectangle()
-                        .stroke(Color.green.opacity(0.6), lineWidth: 2)
-                        .frame(width: hitFrame.width, height: hitFrame.height)
-                        .position(x: hitFrame.midX, y: hitFrame.midY)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("DEBUG MODE")
-                    .font(.headline)
-                    .foregroundColor(.red)
-                Text("Cursor: \(cursorPosition.debugDescription)")
-                    .font(.caption)
-                if let drop = dropPoint {
-                    Text("Drop: \(drop.debugDescription)")
-                        .font(.caption)
-                }
-            }
-            .padding()
-            .background(Color.black.opacity(0.2))
-            .cornerRadius(10)
-            .padding()
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-        .allowsHitTesting(false)
-    }
-
     // MARK: - Start Screen
     private var startScreen: some View {
         VStack(spacing: 24) {
@@ -610,14 +569,14 @@ struct AnimalGameView: View {
     // MARK: - Voice helpers (opdateret til modulær AI-sekvens)
 
     private func speakIntro() {
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
         let aiFiles: [String?] = ["animal_intro"]
         let segmentTexts: [String?] = ["Velkommen til dyrespillet"]
         AudioVoiceManager.shared.speakSequencePerSegment(aiFiles: aiFiles, segmentFallbackTexts: segmentTexts, completion: nil)
     }
 
     private func speakQuestion() {
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
         let animalAudio = currentQuestion.animal.imageName // fx "animal_lion"
         let aiFiles: [String?] = ["animal_forbind", animalAudio, "animal_til_maden"]
         let segmentTexts: [String?] = ["Forbind", currentQuestion.animal.displayName, "til den mad den spiser"]
@@ -626,7 +585,7 @@ struct AnimalGameView: View {
 
     private func speakCorrect() {
         guard let correct = currentQuestion.correctOption else { return }
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
         let animalAudio = currentQuestion.animal.imageName
         let foodAudio = correct.imageName
         let aiFiles: [String?] = ["animal_rigtigt", animalAudio, "animal_spiser", foodAudio]
@@ -635,7 +594,7 @@ struct AnimalGameView: View {
     }
 
     private func speakWrong() {
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
         // Kun den generiske fejlfil
         let aiFiles: [String?] = ["animal_forkert"]
         let segmentTexts: [String?] = ["Det var ikke rigtigt"]

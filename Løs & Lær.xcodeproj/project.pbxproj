@@ -27,6 +27,19 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		9EA94D602F4653D00079A2AB /* Embed App Clips */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/AppClips";
+			dstSubfolderSpec = 16;
+			files = (
+			);
+			name = "Embed App Clips";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		9E5E106A2F2612C100F961AF /* Untitled.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Untitled.swift; sourceTree = "<group>"; };
 		9E5E107E2F2BB3A700F961AF /* Løs & Lær.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Løs & Lær.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -48,6 +61,21 @@
 		9E01B7AE2F104AA000C59315 /* Løs & LærUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Løs & LærUITests";
+			sourceTree = "<group>";
+		};
+		9EA94D352F4653CD0079A2AB /* Læs & Lær App Clip */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Læs & Lær App Clip";
+			sourceTree = "<group>";
+		};
+		9EA94D4A2F4653CF0079A2AB /* Læs & Lær App ClipTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Læs & Lær App ClipTests";
+			sourceTree = "<group>";
+		};
+		9EA94D542F4653D00079A2AB /* Læs & Lær App ClipUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Læs & Lær App ClipUITests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -87,6 +115,9 @@
 				9E5E107E2F2BB3A700F961AF /* Løs & Lær.app */,
 				9E5E107F2F2BB3A700F961AF /* Løs & LærTests.xctest */,
 				9E5E10802F2BB3A700F961AF /* Løs & LærUITests.xctest */,
+				9EA94D352F4653CD0079A2AB /* Læs & Lær App Clip */,
+				9EA94D4A2F4653CF0079A2AB /* Læs & Lær App ClipTests */,
+				9EA94D542F4653D00079A2AB /* Læs & Lær App ClipUITests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -100,6 +131,7 @@
 				9E01B7902F104A9E00C59315 /* Sources */,
 				9E01B7912F104A9E00C59315 /* Frameworks */,
 				9E01B7922F104A9E00C59315 /* Resources */,
+				9EA94D602F4653D00079A2AB /* Embed App Clips */,
 			);
 			buildRules = (
 			);
@@ -397,11 +429,14 @@
 				DEVELOPMENT_TEAM = 7466QS2GNB;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.kids-games";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIStatusBarHidden = YES;
 				INFOPLIST_KEY_UIStatusBarStyle = "";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -429,11 +464,14 @@
 				DEVELOPMENT_TEAM = 7466QS2GNB;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.kids-games";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIStatusBarHidden = YES;
 				INFOPLIST_KEY_UIStatusBarStyle = "";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

@@ -16,6 +16,7 @@ enum GameSelection: CaseIterable {
     case clock
     case animals
     case ticTacToe
+    case memoryMatch
     case allGames
 }
 
@@ -95,6 +96,15 @@ struct ContentView: View {
                     onBackToHub: { selectedGame = .none }  // når brugeren trykker tilbage
                 )
 
+            case .memoryMatch:
+                MemoryMatchView(
+                    difficulty: difficulty,
+                    startImmediately: false,
+                    onExit: { selectedGame = .none },
+                    onBackToHub: { selectedGame = .none }
+                )
+
+                
             case .allGames:
                 AllGamesModeView(
                     difficulty: difficulty,

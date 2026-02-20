@@ -291,7 +291,7 @@ struct LabyrinthGameView: View {
     }
     
     private func speakIntro() {
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
         let file = introAIFile(for: gameMode)
         AudioVoiceManager.shared.speakWithFallback(aiFile: file) {
             // fallback TTS hvis fil mangler
@@ -667,10 +667,6 @@ struct LabyrinthGameView: View {
             if showSuccessMessage {
                 successOverlay
             }
-
-            if debugMode {
-                debugOverlay
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -899,20 +895,6 @@ struct LabyrinthGameView: View {
             .background(Color.black.opacity(0.35))
             .cornerRadius(12)
             .shadow(radius: 3)
-    }
-
-    // MARK: - Debug Overlay
-    private var debugOverlay: some View {
-        HStack {
-            Spacer()
-            Text("x: \(Int(position.x)), y: \(Int(position.y))")
-                .foregroundColor(.white)
-                .padding(8)
-                .background(Color.black.opacity(0.5))
-                .cornerRadius(8)
-                .padding(.top, 8)
-                .padding(.trailing, 12)
-        }
     }
 
     // MARK: - Start Screen
@@ -1526,10 +1508,8 @@ struct LabyrinthGameView: View {
                 audioPlayer?.prepareToPlay()
                 audioPlayer?.play()
             } catch {
-                print("Kunne ikke afspille lydfil: \(error)")
             }
         } else {
-            print("Lydfil ikke fundet i bundle")
         }
     }
 
@@ -1564,7 +1544,7 @@ struct LabyrinthGameView: View {
 
     private func speakMath(a: Int, b: Int) {
         let (aiFiles, segmentTexts) = segmentsForMath(a: a, b: b)
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
         AudioVoiceManager.shared.speakSequencePerSegment(
             aiFiles: aiFiles,
             segmentFallbackTexts: segmentTexts,
@@ -1592,7 +1572,7 @@ struct LabyrinthGameView: View {
     
     private func speakMathWrong(chosen: String) {
         // Prøv AI‑filen math_wrong, ellers fallback til TTS der kun siger det valgte tal
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
         AudioVoiceManager.shared.speakWithFallback(aiFile: "math_wrong") {
             // fallback TTS: sig kun hvad barnet valgte
             speak("Ups, det var \(chosen)")
@@ -1638,9 +1618,6 @@ struct LabyrinthGameView: View {
         let aiFiles: [String?] = [introToken, letterTokenName]
         let segmentTexts: [String?] = ["Find bogstavet", letter]
 
-        print("[LETTER] speakLetterQuestion called for: '\(letter)'")
-        print("[LETTER] aiFiles:", aiFiles)
-        print("[LETTER] segmentTexts:", segmentTexts)
 
         // Helper: tjek om fil findes i bundle (mp3/m4a/wav/caf)
         func fileExists(_ token: String) -> Bool {
@@ -1654,12 +1631,10 @@ struct LabyrinthGameView: View {
         // Print file existence for tokens
         let introExists = fileExists(introToken)
         let letterExists = fileExists(letterTokenName)
-        print("[LETTER] fileExists - \(introToken): \(introExists), \(letterTokenName): \(letterExists)")
 
         // Hvis mindst én fil findes, kald AudioVoiceManager som i math
         if introExists || letterExists {
-            AudioVoiceManager.shared.debugLogging = true
-            print("[LETTER] Calling AudioVoiceManager.speakSequencePerSegment(...)")
+            AudioVoiceManager.shared.debugLogging = false
             AudioVoiceManager.shared.speakSequencePerSegment(
                 aiFiles: aiFiles,
                 segmentFallbackTexts: segmentTexts,
@@ -1669,7 +1644,6 @@ struct LabyrinthGameView: View {
         }
 
         // Fallback: hvis ingen filer findes, brug TTS så vi ved at lyd virker
-        print("[LETTER] No AI files found for letter. Falling back to TTS.")
         speak("Find bogstavet \(letter)")
     }
 
@@ -1688,7 +1662,7 @@ struct LabyrinthGameView: View {
     }
 
     private func speakLetterWrong(chosen: String) {
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
 
         // Prøv AI token "letter_wrong", ellers fallback TTS i completion
         AudioVoiceManager.shared.speakWithFallback(aiFile: "letter_wrong") {
@@ -1711,7 +1685,6 @@ struct LabyrinthGameView: View {
     }
 
     private func speakWordQuestion(word: String) {
-        print("[WORD] speakWordQuestion called for: '\(word)'")
 
         // Byg kandidat tokens i prioriteret rækkefølge
         let raw = word.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1745,12 +1718,8 @@ struct LabyrinthGameView: View {
         let aiFiles: [String?] = ["word_find", chosenWordToken]
         let segmentTexts: [String?] = ["Find ordet", word]
 
-        print("[WORD] candidateTokens:", candidateTokens)
-        print("[WORD] chosenWordToken:", chosenWordToken ?? "none")
-
         if chosenWordToken != nil || fileExists("word_find") {
             AudioVoiceManager.shared.debugLogging = true
-            print("[WORD] Calling AudioVoiceManager.speakSequencePerSegment with:", aiFiles)
             AudioVoiceManager.shared.speakSequencePerSegment(
                 aiFiles: aiFiles,
                 segmentFallbackTexts: segmentTexts,
@@ -1760,19 +1729,17 @@ struct LabyrinthGameView: View {
         }
 
         // Fallback: TTS så vi altid får lyd
-        print("[WORD] No AI files found for word. Falling back to TTS.")
         speak("Find ordet \(word)")
     }
 
     private func speakWordCorrect(word: String) {
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
 
         // Prøv intro + ord token (brug samme tokennavn som i Word voices.xlsx)
         let wordToken = "word_\(word.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
         let aiFiles: [String?] = ["word_correct", wordToken]
         let fallbackTexts: [String?] = ["Flot! Du fandt", word]
 
-        print("[WORD] speakWordCorrect called for: \(word) -> aiFiles:", aiFiles)
 
         // Hvis AudioVoiceManager kan afspille, brug den
         AudioVoiceManager.shared.speakSequencePerSegment(
@@ -1786,14 +1753,13 @@ struct LabyrinthGameView: View {
         AudioVoiceManager.shared.debugLogging = true
 
         // Prøv at afspille generisk wrong token; i completion fallback til TTS med valgt ord
-        print("[WORD] speakWordWrong called for: \(chosen) -> trying word_wrong")
         AudioVoiceManager.shared.speakWithFallback(aiFile: "word_wrong") {
             speak("Ups, det var \(chosen)")
         }
     }
 
     private func speakWordProgress(ordinalIndex: Int, word: String) {
-        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.debugLogging = false
 
         // Map ordinal index → token
         let ordinalToken: String = {
@@ -1826,8 +1792,6 @@ struct LabyrinthGameView: View {
             word,
             "Find næste bogstav"
         ]
-
-        print("[WORD] speakWordProgress → aiFiles:", aiFiles)
 
         AudioVoiceManager.shared.speakSequencePerSegment(
             aiFiles: aiFiles,
