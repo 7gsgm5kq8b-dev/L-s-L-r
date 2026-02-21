@@ -1,7 +1,11 @@
+// MemoryMatchView.swift
+// Opdateret version: tre modes + AI flip notification + turn behaviour per mode
 import SwiftUI
 import Combine
+import AVFoundation
 
 // MARK: - Model
+
 struct Card: Identifiable, Equatable {
     let id = UUID()
     let animalName: String
@@ -9,36 +13,53 @@ struct Card: Identifiable, Equatable {
     var isMatched: Bool = false
 }
 
-// MARK: - Turn enum (internal so it can be used by published properties)
+// MARK: - Turn enum
+
 enum Turn {
     case player1
     case player2 // in singlePlayer this is AI
 }
 
+// MARK: - MemoryMatchMode (lokal til MemoryMatchView)
+enum MemoryMatchMode {
+    case solo        // 1 spiller (ingen modstander)
+    case vsAI        // 1 spiller mod (spiller mod AI)
+    case twoPlayer   // 2 spillere (lokal)
+}
+
+
+// MARK: - Notification name for AI flips (ViewModel -> View)
+extension Notification.Name {
+    static let memoryMatchSpeakCard = Notification.Name("memoryMatchSpeakCard")
+}
+
 // MARK: - ViewModel
+
 final class MemoryMatchViewModel: ObservableObject {
-    // Public state
     @Published private(set) var cards: [Card] = []
     @Published var moves: Int = 0
     @Published var matchesFound: Int = 0
     @Published var disableInput: Bool = false
+
+    // Multiplayer / AI state (tilføjet)
     @Published var currentTurn: Turn = .player1
     @Published var gridColumns: Int = 4
-    @Published var pairCount: Int = 8 // number of pairs (8 = 4x4, 16 = 8x4)
-    @Published var isSinglePlayer: Bool = true
+    @Published var pairCount: Int = 8
+    @Published var isSinglePlayer: Bool = false // betyder "er der en AI modstander?" — set fra view
     @Published var aiDifficulty: Difficulty = .easy
 
-    // Scores preserved between rounds (same philosophy as TicTacToe)
+    // Scores (bevares mellem runder)
     @Published var player1Score: Int = 0
     @Published var player2Score: Int = 0
 
-    // Internal
     private var firstSelectedIndex: Int? = nil
     private let flipBackDelay: TimeInterval = 0.7
-    private var seenCards: [String: Set<Int>] = [:] // animalName -> indices seen (for AI)
+
+    // For AI memory
+    private var seenCards: [String: Set<Int>] = [:]
     private var cancellables = Set<AnyCancellable>()
 
-    init(animalNames: [String], pairCount: Int = 8, singlePlayer: Bool = true, aiDifficulty: Difficulty = .easy) {
+    init(animalNames: [String], pairCount: Int = 8, singlePlayer: Bool = false, aiDifficulty: Difficulty = .easy) {
         self.pairCount = pairCount
         self.isSinglePlayer = singlePlayer
         self.aiDifficulty = aiDifficulty
@@ -46,7 +67,6 @@ final class MemoryMatchViewModel: ObservableObject {
         setupCards(with: animalNames)
     }
 
-    // MARK: - Setup
     func setupCards(with animalNames: [String]) {
         var deck: [Card] = []
         for name in animalNames {
@@ -61,27 +81,24 @@ final class MemoryMatchViewModel: ObservableObject {
         self.disableInput = false
         self.currentTurn = .player1
         self.seenCards.removeAll()
-        // Note: player1Score/player2Score are intentionally NOT reset here
+        // scores intentionally preserved
     }
 
-    // Reset scores (call only if you want to clear tournament/session)
     func resetScores() {
         player1Score = 0
         player2Score = 0
     }
 
-    // Helper to generate random animals
     func generateRandomAnimals(count: Int) -> [String] {
         let all = AnimalDatabase.all.map { $0.imageName }
         let take = min(count, all.count)
         return Array(all.shuffled().prefix(take))
     }
 
-    // Pair count mapping (keeps it explicit)
     static func pairCount(for difficulty: Difficulty) -> Int {
         switch difficulty {
-        case .easy: return 8   // 4x4
-        case .hard: return 16  // 8x4 (32 cards)
+        case .easy: return 8
+        case .hard: return 16
         default: return 8
         }
     }
@@ -92,24 +109,20 @@ final class MemoryMatchViewModel: ObservableObject {
         guard cards.indices.contains(index) else { return }
         guard !cards[index].isFaceUp && !cards[index].isMatched else { return }
 
-        // Flip the card
         cards[index].isFaceUp = true
         rememberCard(at: index)
 
-        // If first selected exists -> evaluate pair
         if let first = firstSelectedIndex {
-            // Two cards are face up now
             moves += 1
             disableInput = true
 
             if cards[first].animalName == cards[index].animalName {
-                // Match: mark matched, increment matches and current player's score
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                     self.cards[first].isMatched = true
                     self.cards[index].isMatched = true
                     self.matchesFound += 1
 
-                    // Update score for current player
+                    // Update score for current player if multiplayer/AI mode
                     switch self.currentTurn {
                     case .player1:
                         self.player1Score += 1
@@ -117,14 +130,11 @@ final class MemoryMatchViewModel: ObservableObject {
                         self.player2Score += 1
                     }
 
-                    // Remove matched from memory
                     self.forgetMatchedCard(self.cards[first].animalName)
-
                     self.firstSelectedIndex = nil
                     self.disableInput = false
 
-                    // If game complete, leave overlay handling to view
-                    // If AI and singleplayer and same player continues, schedule AI again
+                    // If singleplayer (AI) and AI keeps turn, schedule AI
                     if self.isSinglePlayer && self.currentTurn == .player2 && !self.isGameComplete {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                             self.aiTakeTurnIfNeeded()
@@ -132,17 +142,15 @@ final class MemoryMatchViewModel: ObservableObject {
                     }
                 }
             } else {
-                // Not a match: flip back and switch turn
                 DispatchQueue.main.asyncAfter(deadline: .now() + flipBackDelay) {
                     self.cards[first].isFaceUp = false
                     self.cards[index].isFaceUp = false
                     self.firstSelectedIndex = nil
                     self.disableInput = false
 
-                    // Switch turn
+                    // Switch turn (only relevant in multiplayer/AI modes)
                     self.currentTurn = (self.currentTurn == .player1) ? .player2 : .player1
 
-                    // If singleplayer and it's AI's turn, schedule AI
                     if self.isSinglePlayer && self.currentTurn == .player2 {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                             self.aiTakeTurnIfNeeded()
@@ -151,12 +159,11 @@ final class MemoryMatchViewModel: ObservableObject {
                 }
             }
         } else {
-            // No first selected yet
             firstSelectedIndex = index
         }
     }
 
-    // MARK: - Remembering cards for AI
+    // MARK: - AI memory helpers
     private func rememberCard(at index: Int) {
         guard cards.indices.contains(index) else { return }
         let name = cards[index].animalName
@@ -169,7 +176,6 @@ final class MemoryMatchViewModel: ObservableObject {
         seenCards[name] = nil
     }
 
-    // Find known unmatched pair indices (both not matched)
     private func findKnownUnmatchedPair() -> (Int, Int)? {
         for (name, indices) in seenCards {
             let valid = indices.filter { idx in
@@ -183,7 +189,6 @@ final class MemoryMatchViewModel: ObservableObject {
         return nil
     }
 
-    // Find a match index for a given card index if known
     private func findMatchForCard(at index: Int) -> Int? {
         guard cards.indices.contains(index) else { return nil }
         let name = cards[index].animalName
@@ -202,7 +207,7 @@ final class MemoryMatchViewModel: ObservableObject {
         }
     }
 
-    // MARK: - AI logic
+    // MARK: - AI logic (kopieret fra 202000 med små tilpasninger)
     private func aiThinkDelay() -> TimeInterval {
         switch aiDifficulty {
         case .easy: return 0.45
@@ -215,7 +220,7 @@ final class MemoryMatchViewModel: ObservableObject {
         guard isSinglePlayer else { return }
         guard currentTurn == .player2 else { return }
         guard !disableInput else { return }
-        // Schedule AI action
+
         disableInput = true
         DispatchQueue.main.asyncAfter(deadline: .now() + aiThinkDelay()) {
             self.performAIMove()
@@ -223,12 +228,13 @@ final class MemoryMatchViewModel: ObservableObject {
     }
 
     private func performAIMove() {
-        // 1) If known pair exists, take it
+        // 1) known pair
         if let (i, j) = findKnownUnmatchedPair() {
             if !cards[i].isFaceUp && !cards[i].isMatched {
                 cards[i].isFaceUp = true
                 rememberCard(at: i)
             }
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 if !self.cards[j].isFaceUp && !self.cards[j].isMatched {
                     self.cards[j].isFaceUp = true
@@ -239,7 +245,7 @@ final class MemoryMatchViewModel: ObservableObject {
             return
         }
 
-        // 2) Otherwise flip a random unknown card A
+        // 2) flip random unknown A
         let unknowns = indicesOfUnknownCards()
         guard !unknowns.isEmpty else {
             self.disableInput = false
@@ -249,7 +255,7 @@ final class MemoryMatchViewModel: ObservableObject {
             self.disableInput = false
             return
         }
-        // Flip A
+
         cards[a].isFaceUp = true
         rememberCard(at: a)
 
@@ -273,6 +279,7 @@ final class MemoryMatchViewModel: ObservableObject {
             }
             return
         }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             if !self.cards[b].isFaceUp && !self.cards[b].isMatched {
                 self.cards[b].isFaceUp = true
@@ -282,37 +289,28 @@ final class MemoryMatchViewModel: ObservableObject {
         }
     }
 
-    // Evaluate pair for AI (reuses same match/miss logic)
     private func evaluateAIPair(first: Int, second: Int) {
-        // Safety checks
         guard cards.indices.contains(first), cards.indices.contains(second) else {
             self.disableInput = false
             return
         }
-        // If already matched by some race, release
         if cards[first].isMatched || cards[second].isMatched {
             self.disableInput = false
             return
         }
 
-        // Increase moves
         moves += 1
 
         if cards[first].animalName == cards[second].animalName {
-            // Match
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 let name = self.cards[first].animalName
                 self.cards[first].isMatched = true
                 self.cards[second].isMatched = true
                 self.matchesFound += 1
-
-                // AI is player2
                 self.player2Score += 1
-
-                // forget matched from memory
                 self.forgetMatchedCard(name)
                 self.disableInput = false
-                // AI keeps turn if not finished
+
                 if !self.isGameComplete {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         self.aiTakeTurnIfNeeded()
@@ -320,24 +318,22 @@ final class MemoryMatchViewModel: ObservableObject {
                 }
             }
         } else {
-            // Miss: flip back and switch turn
             DispatchQueue.main.asyncAfter(deadline: .now() + flipBackDelay) {
                 self.cards[first].isFaceUp = false
                 self.cards[second].isFaceUp = false
                 self.disableInput = false
-                // switch turn to player1
                 self.currentTurn = .player1
             }
         }
     }
 
-    // MARK: - Helpers
     var isGameComplete: Bool {
         cards.allSatisfy { $0.isMatched }
     }
 }
 
 // MARK: - MemoryMatchView (View)
+
 struct MemoryMatchView: View {
     let difficulty: Difficulty
     let startImmediately: Bool
@@ -347,29 +343,96 @@ struct MemoryMatchView: View {
     @StateObject private var vm: MemoryMatchViewModel
     @StateObject private var speechManager = SpeechManager()
 
+    // UI state
     @State private var showStartScreen: Bool = true
     @State private var showSuccess: Bool = false
     @State private var successMessage: String = ""
     @State private var showSettingsDifficulty: Difficulty = .easy
-    @State private var isSinglePlayerSelection: Bool = true
+
+    // New: selected game mode
+    @State private var selectedMode: MemoryMatchMode = .solo
 
     // Speak control for cards
     @State private var lastSpokenCardID: UUID? = nil
     @State private var speakingLock: Bool = false
 
+    // Turn pulse animation
+    @State private var turnPulse: Bool = false
+
     private let tileSpacing: CGFloat = 12
 
-    // Mapping image->audio (use your full mapping from your project)
+    // Mapping image->audio (keep your mapping)
     private let imageToAudioMap: [String: String] = [
-        // keep full mapping from your project; shortened here for brevity
-        "animal_lion": "animal_løve",
-        "animal_elephant": "animal_elefant",
+        "animal_antelope": "animal_antelope",
+        "animal_armadillo": "animal_armadillo",
+        "animal_axolotl": "animal_axolotl",
+        "animal_bat": "animal_bat",
+        "animal_beaver": "animal_beaver",
+        "animal_buffalo": "animal_buffalo",
+        "animal_butterfly": "animal_butterfly",
+        "animal_cat": "animal_cat",
+        "animal_chameleon": "animal_chameleon",
+        "animal_cheetah": "animal_cheetah",
+        "animal_chimpanzee": "animal_chimpanzee",
+        "animal_cow": "animal_cow",
+        "animal_crab": "animal_crab",
+        "animal_dog": "animal_dog",
+        "animal_dolphin": "animal_dolphin",
+        "animal_elephant": "animal_elephant",
+        "animal_flamingo": "animal_flamingo",
+        "animal_flying_fish": "animal_flying_fish",
+        "animal_giraffe": "animal_giraffe",
+        "animal_gorilla": "animal_gorilla",
+        "animal_hedgehog": "animal_hedgehog",
+        "animal_hippo": "animal_hippo",
+        "animal_hummingbird": "animal_hummingbird",
+        "animal_hyena": "animal_hyena",
+        "animal_jellyfish": "animal_jellyfish",
+        "animal_kangaroo": "animal_kangaroo",
+        "animal_koala": "animal_koala",
+        "animal_lemur": "animal_lemur",
+        "animal_lion": "animal_lion",
+        "animal_mandrill": "animal_mandrill",
+        "animal_meerkat": "animal_meerkat",
+        "animal_mole": "animal_mole",
+        "animal_mongoose": "animal_mongoose",
         "animal_monkey": "animal_monkey",
+        "animal_moose": "animal_moose",
+        "animal_octopus": "animal_octopus",
+        "animal_okapi": "animal_okapi",
+        "animal_orca": "animal_orca",
+        "animal_ostrich": "animal_ostrich",
+        "animal_otter": "animal_otter",
         "animal_owl": "animal_owl",
+        "animal_panda": "animal_panda",
+        "animal_pangolin": "animal_pangolin",
+        "animal_parrot": "animal_parrot",
+        "animal_penguin": "animal_penguin",
+        "animal_polar_bear": "animal_polar_bear",
+        "animal_puffin": "animal_puffin",
+        "animal_quokka": "animal_quokka",
+        "animal_rabbit": "animal_rabbit",
+        "animal_raccoon": "animal_raccoon",
+        "animal_reindeer": "animal_reindeer",
+        "animal_rhino": "animal_rhino",
+        "animal_seal": "animal_seal",
+        "animal_sheep": "animal_sheep",
+        "animal_sloth": "animal_sloth",
+        "animal_slow_loris": "animal_slow_loris",
+        "animal_snow_leopard": "animal_snow_leopard",
+        "animal_squirrel": "animal_squirrel",
+        "animal_swordfish": "animal_swordfish",
         "animal_tiger": "animal_tiger",
-        "animal_giraffe": "animal_giraf",
+        "animal_toucan": "animal_toucan",
+        "animal_turtle": "animal_turtle",
+        "animal_viscacha": "animal_viscacha",
+        "animal_vulture": "animal_vulture",
+        "animal_walrus": "animal_walrus",
+        "animal_wild_boar": "animal_wild_boar",
+        "animal_wolverine": "animal_wolverine",
         "animal_zebra": "animal_zebra"
     ]
+
 
     // MARK: - Init
     init(
@@ -383,28 +446,25 @@ struct MemoryMatchView: View {
         self.onExit = onExit
         self.onBackToHub = onBackToHub
 
-        // Default initial animals (will be replaced by startNewRound)
         let initialPairs = MemoryMatchViewModel.pairCount(for: difficulty)
         let all = AnimalDatabase.all.map { $0.imageName }
         let chosen = Array(all.shuffled().prefix(initialPairs))
-        _vm = StateObject(wrappedValue: MemoryMatchViewModel(animalNames: chosen, pairCount: initialPairs, singlePlayer: true, aiDifficulty: difficulty))
+
+        _vm = StateObject(wrappedValue: MemoryMatchViewModel(animalNames: chosen, pairCount: initialPairs, singlePlayer: false, aiDifficulty: difficulty))
     }
 
     // MARK: - Body
     var body: some View {
         GeometryReader { geo in
-            // Safe area aware sizing
             let safeTop = geo.safeAreaInsets.top
             let safeBottom = geo.safeAreaInsets.bottom
             let horizontalPadding: CGFloat = 24
             let approxTopArea: CGFloat = 120
             let approxFooterArea: CGFloat = 64
             let verticalReserved = safeTop + approxTopArea + approxFooterArea + safeBottom
-
             let availableWidth = geo.size.width - horizontalPadding
             let availableHeight = max(0, geo.size.height - verticalReserved)
 
-            // compute columns and rows
             let cols = vm.gridColumns
             let rows = max(1, (vm.pairCount * 2) / cols)
             let cardWidth = (availableWidth - CGFloat(cols - 1) * tileSpacing) / CGFloat(cols)
@@ -423,13 +483,12 @@ struct MemoryMatchView: View {
                         startScreen
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        // Game header
+                        // Header with optional turnIndicator
                         HStack {
-                            VStack(alignment: .leading) {
-                                Text("Vendespil")
-                                    .font(.largeTitle.bold())
-                                Text("Find parene")
-                                    .foregroundColor(.gray)
+                            Spacer()
+                            if selectedMode != .solo { // show banana/apple only in vsAI or twoPlayer
+                                turnIndicator
+                                    .padding(.bottom, 6)
                             }
                             Spacer()
                         }
@@ -455,9 +514,24 @@ struct MemoryMatchView: View {
             }
             .onAppear {
                 speechManager.preload()
+
+                // Listen for AI flip notifications so view can speak AI‑flipped cards
+                NotificationCenter.default.addObserver(forName: .memoryMatchSpeakCard, object: nil, queue: .main) { note in
+                    // Kun tal AI‑vendte kort hvis vi er i solo mode (barnet spiller alene)
+                    guard selectedMode == .solo else { return }
+
+                    if let card = note.object as? Card {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                            speakAnimalIfNeeded(for: card)
+                        }
+                    }
+                }
+
+
                 if startImmediately {
-                    // Called from AllGames: force singleplayer and start immediately
                     showStartScreen = false
+                    // default to vsAI if started immediately
+                    selectedMode = .vsAI
                     vm.isSinglePlayer = true
                     vm.aiDifficulty = difficulty
                     let pairs = MemoryMatchViewModel.pairCount(for: difficulty)
@@ -465,7 +539,6 @@ struct MemoryMatchView: View {
                     vm.gridColumns = (pairs == 8) ? 4 : 8
                     let animals = vm.generateRandomAnimals(count: pairs)
                     vm.setupCards(with: animals)
-                    // If AI should start sometimes, you can randomize currentTurn here
                     if vm.currentTurn == .player2 {
                         vm.aiTakeTurnIfNeeded()
                     }
@@ -473,8 +546,6 @@ struct MemoryMatchView: View {
             }
             .onChange(of: vm.matchesFound) { _ in
                 if vm.isGameComplete {
-                    // Determine winner by comparing player scores for this round
-                    // (If you prefer to determine winner by who found last pair, adjust accordingly)
                     if vm.player1Score > vm.player2Score {
                         successMessage = "Spiller 1 vandt runden!"
                     } else if vm.player2Score > vm.player1Score {
@@ -482,14 +553,36 @@ struct MemoryMatchView: View {
                     } else {
                         successMessage = "Runden endte uafgjort"
                     }
-
                     AudioVoiceManager.shared.speakWithFallback(aiFile: "win_match") {
                         speechManager.speak(successMessage)
                     }
                     showSuccess = true
                 }
             }
-            // Pin footer kun når vi er i spil (ikke på startskærm), eller hvis startImmediately er true
+            // Turn change: only play banana/apple turn audio when mode is vsAI or twoPlayer
+            .onChange(of: vm.currentTurn) { newTurn in
+                guard selectedMode != .solo else { return } // only in vsAI or twoPlayer
+                switch newTurn {
+                case .player1:
+                    AudioVoiceManager.shared.speakWithFallback(aiFile: "Turn_Banana") {
+                        speechManager.speak("Din tur banan")
+                    }
+                case .player2:
+                    AudioVoiceManager.shared.speakWithFallback(aiFile: "Turn_Apple") {
+                        speechManager.speak("Din tur æble")
+                    }
+                }
+                // Pulse animation
+                withAnimation(.easeOut(duration: 0.28)) {
+                    turnPulse = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        turnPulse = false
+                    }
+                }
+            }
+            // Pin footer only when game is running or startImmediately
             .safeAreaInset(edge: .bottom) {
                 Group {
                     if !showStartScreen || startImmediately {
@@ -502,7 +595,6 @@ struct MemoryMatchView: View {
                     }
                 }
             }
-
         }
     }
 
@@ -518,30 +610,55 @@ struct MemoryMatchView: View {
                     .cornerRadius(10)
             }
 
+            // Nyt spil ved siden af Tilbage
             Button(action: {
-                // New random game with same settings (scores preserved)
                 let animals = vm.generateRandomAnimals(count: vm.pairCount)
                 vm.setupCards(with: animals)
             }) {
-                Text("Nyt spil")
-                    .font(.headline.bold())
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("Nyt spil")
+                        .font(.headline.bold())
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.06))
+                .cornerRadius(10)
             }
 
             Spacer()
-
-            Button(action: { speechManager.speak("Vendespil. Find parene.") }) {
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .padding(10)
-                    .background(Color.black.opacity(0.06))
-                    .clipShape(Circle())
-            }
         }
+        .padding(.horizontal, 8)
+    }
+
+    // MARK: - Turn Indicator
+    private var turnIndicator: some View {
+        let isPlayer1 = vm.currentTurn == .player1
+        let label: String = {
+            if selectedMode == .vsAI {
+                return isPlayer1 ? "Din tur — Banan" : "Computerens tur — Æble"
+            } else {
+                return isPlayer1 ? "Spiller 1s tur — Banan" : "Spiller 2s tur — Æble"
+            }
+        }()
+
+        return HStack(spacing: 10) {
+            Image(isPlayer1 ? "food_banana" : "food_apple")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 22, height: 22)
+                .accessibilityHidden(true)
+            Text(label)
+                .font(.subheadline.bold())
+                .foregroundColor(.white)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(isPlayer1 ? Color.green : Color.blue))
+        .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
+        .scaleEffect(turnPulse ? 1.04 : 1.0)
+        .accessibilityLabel(label)
     }
 
     // MARK: - Card View
@@ -550,7 +667,8 @@ struct MemoryMatchView: View {
             withAnimation(.easeInOut(duration: 0.18)) {
                 vm.chooseCard(at: index)
             }
-            // Speak the animal after flip
+
+            // Speak the animal after flip (small delay)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
                 guard vm.cards.indices.contains(index) else { return }
                 let updated = vm.cards[index]
@@ -596,6 +714,8 @@ struct MemoryMatchView: View {
 
     // MARK: - Speak helpers
     private func speakAnimalIfNeeded(for card: Card) {
+        // Avoid repeating same card rapidly or overlapping speech
+        guard selectedMode == .solo else { return }
         guard lastSpokenCardID != card.id, !speakingLock else { return }
         lastSpokenCardID = card.id
         speakingLock = true
@@ -626,10 +746,10 @@ struct MemoryMatchView: View {
         return base.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
-    // MARK: - Footer Bar (uden dyreikoner)
+    // MARK: - Footer Bar
     private var footerBar: some View {
         HStack(spacing: 16) {
-            // Venstre: Moves
+            // Moves
             HStack(spacing: 10) {
                 Image(systemName: "arrow.triangle.2.circlepath")
                     .font(.system(size: 18, weight: .semibold))
@@ -648,47 +768,70 @@ struct MemoryMatchView: View {
 
             Spacer()
 
-            // Spiller 1 (tekst + score)
-            VStack(alignment: .center, spacing: 2) {
-                Text("Spiller 1")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                Text("\(vm.player1Score)")
-                    .font(.headline.bold())
-                    .accessibilityLabel("Spiller 1 score")
-                    .accessibilityValue("\(vm.player1Score)")
+            // Player 1 (vis kun i vsAI eller twoPlayer)
+            if selectedMode != .solo {
+                HStack(spacing: 10) {
+                    Image("food_banana")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Spiller 1")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        Text("\(vm.player1Score)")
+                            .font(.headline.bold())
+                            .accessibilityLabel("Spiller 1 score")
+                            .accessibilityValue("\(vm.player1Score)")
+                    }
+                }
             }
+
 
             Spacer(minLength: 12)
 
-            // Spiller 2 (tekst + score)
-            VStack(alignment: .center, spacing: 2) {
-                Text("Spiller 2")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                Text("\(vm.player2Score)")
-                    .font(.headline.bold())
-                    .accessibilityLabel("Spiller 2 score")
-                    .accessibilityValue("\(vm.player2Score)")
+            // Player 2 (vis kun i vsAI eller twoPlayer)
+            if selectedMode != .solo {
+                HStack(spacing: 10) {
+                    Image("food_apple")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Spiller 2")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        Text("\(vm.player2Score)")
+                            .font(.headline.bold())
+                            .accessibilityLabel("Spiller 2 score")
+                            .accessibilityValue("\(vm.player2Score)")
+                    }
+                }
             }
+
 
             Spacer()
 
-            // Højre: Matches
-            HStack(spacing: 10) {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("Stik")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                    Text("\(vm.matchesFound)")
-                        .font(.headline.bold())
-                        .accessibilityLabel("Stik")
-                        .accessibilityValue("\(vm.matchesFound)")
+            // Matches (vis kun i solo)
+            if selectedMode == .solo {
+                HStack(spacing: 10) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("Stik")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        Text("\(vm.matchesFound)")
+                            .font(.headline.bold())
+                            .accessibilityLabel("Stik")
+                            .accessibilityValue("\(vm.matchesFound)")
+                    }
+                    Image(systemName: "star.fill")
+                        .foregroundColor(.yellow)
+                        .font(.system(size: 18, weight: .semibold))
                 }
-                Image(systemName: "suit.club.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.gray)
-                    .accessibilityHidden(true)
             }
         }
         .padding(.vertical, 8)
@@ -706,18 +849,16 @@ struct MemoryMatchView: View {
         .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
     }
 
-
-
-    // MARK: - Start Screen
+    // MARK: - Start Screen (grafiske bokse)
     private var startScreen: some View {
         VStack(spacing: 20) {
-            Spacer(minLength: 60)
+            Spacer(minLength: 40)
 
             Text("Vendespil")
                 .font(.largeTitle.bold())
                 .foregroundColor(.black)
 
-            Text("Vælg 1 eller 2 spillere og sværhedsgrad.")
+            Text("Vælg spiltype og sværhedsgrad.")
                 .multilineTextAlignment(.center)
                 .foregroundColor(.black)
                 .padding(.horizontal, 28)
@@ -725,14 +866,49 @@ struct MemoryMatchView: View {
                 .background(Color.black.opacity(0.03))
                 .cornerRadius(12)
 
-            HStack(spacing: 16) {
-                playerChoiceBox(count: 1, selected: isSinglePlayerSelection)
-                    .onTapGesture { isSinglePlayerSelection = true }
-                playerChoiceBox(count: 2, selected: !isSinglePlayerSelection)
-                    .onTapGesture { isSinglePlayerSelection = false }
-            }
-            .padding(.horizontal, 24)
+            // Tre grafiske bokse
+            GeometryReader { geo in
+                let boxWidth = max(120, min(360, (geo.size.width - 48) / 3))
+                HStack(spacing: 12) {
+                    // Solo (1 spiller, ingen modstander)
+                    modeBox(
+                        title: "1 spiller",
+                        subtitle: "Spil alene — ingen modstander",
+                        systemImage: "person.fill",
+                        isSelected: selectedMode == .solo,
+                        width: boxWidth
+                    ) {
+                        selectedMode = .solo
+                    }
 
+                    // Vs AI (1 spiller mod)
+                    modeBox(
+                        title: "1 spiller mod",
+                        subtitle: "Spil mod computeren",
+                        systemImage: "person.crop.circle.badge.checkmark",
+                        isSelected: selectedMode == .vsAI,
+                        width: boxWidth
+                    ) {
+                        selectedMode = .vsAI
+                    }
+
+                    // Two player
+                    modeBox(
+                        title: "2 spiller",
+                        subtitle: "To spillere lokalt",
+                        systemImage: "person.2.fill",
+                        isSelected: selectedMode == .twoPlayer,
+                        width: boxWidth
+                    ) {
+                        selectedMode = .twoPlayer
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .frame(height: 140)
+            .padding(.horizontal, 16)
+
+            // Difficulty buttons
             HStack(spacing: 12) {
                 Button(action: { showSettingsDifficulty = .easy }) {
                     Text("Let")
@@ -743,7 +919,6 @@ struct MemoryMatchView: View {
                         .foregroundColor(showSettingsDifficulty == .easy ? .white : .black)
                         .cornerRadius(12)
                 }
-
                 Button(action: { showSettingsDifficulty = .hard }) {
                     Text("Svær")
                         .font(.headline)
@@ -755,17 +930,28 @@ struct MemoryMatchView: View {
                 }
             }
 
+            // Startknap
             Button(action: {
                 // Start game with chosen settings
                 showStartScreen = false
-                vm.isSinglePlayer = isSinglePlayerSelection
-                vm.aiDifficulty = showSettingsDifficulty
+
+                // Configure VM based on selectedMode
+                switch selectedMode {
+                case .solo:
+                    vm.isSinglePlayer = false
+                case .vsAI:
+                    vm.isSinglePlayer = true
+                    vm.aiDifficulty = showSettingsDifficulty
+                case .twoPlayer:
+                    vm.isSinglePlayer = false
+                }
+
                 let pairs = MemoryMatchViewModel.pairCount(for: showSettingsDifficulty)
                 vm.pairCount = pairs
                 vm.gridColumns = (pairs == 8) ? 4 : 8
                 let animals = vm.generateRandomAnimals(count: pairs)
                 vm.setupCards(with: animals)
-                // If AI should start, schedule it
+
                 if vm.isSinglePlayer && vm.currentTurn == .player2 {
                     vm.aiTakeTurnIfNeeded()
                 }
@@ -786,29 +972,54 @@ struct MemoryMatchView: View {
         .background(Color.white.ignoresSafeArea())
         .onAppear {
             // default selection
-            isSinglePlayerSelection = true
+            if selectedMode == nil {
+                selectedMode = .solo
+            }
             showSettingsDifficulty = difficulty
         }
     }
 
-    private func playerChoiceBox(count: Int, selected: Bool) -> some View {
-        VStack {
-            Image(systemName: count == 1 ? "person.fill" : "person.2.fill")
-                .font(.system(size: 44))
-                .foregroundColor(selected ? .white : .black)
-                .padding(18)
-                .background(selected ? Color.green : Color.black.opacity(0.06))
-                .cornerRadius(12)
+    // MARK: - Mode box helper
+    @ViewBuilder
+    private func modeBox(title: String, subtitle: String, systemImage: String, isSelected: Bool, width: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundColor(isSelected ? .white : .black)
+                    .padding(12)
+                    .background(isSelected ? Color.green.opacity(0.95) : Color.black.opacity(0.06))
+                    .clipShape(Circle())
 
-            Text(count == 1 ? "1 spiller" : "2 spillere")
-                .font(.headline)
-                .foregroundColor(.black)
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(isSelected ? .white : .black)
+
+                Text(subtitle)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(isSelected ? Color.white.opacity(0.9) : Color.gray)
+                    .lineLimit(2)
+                    .frame(maxWidth: width * 0.9)
+            }
+            .padding(12)
+            .frame(width: width, height: 120)
+            .background(isSelected ? Color.green : Color.white)
+            .cornerRadius(12)
+            .shadow(color: isSelected ? Color.black.opacity(0.18) : Color.black.opacity(0.04), radius: isSelected ? 8 : 4, x: 0, y: 4)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? Color.green.opacity(0.9) : Color.clear, lineWidth: 1)
+            )
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(Color.white)
-        .cornerRadius(12)
-        .shadow(radius: selected ? 6 : 0)
+        .buttonStyle(.plain)
+    }
+
+
+    private func isSinglePlayerSelectionDefault() {
+        // default selection
+        selectedMode = .solo
+        showSettingsDifficulty = difficulty
     }
 
     // MARK: - Success Overlay
@@ -819,10 +1030,8 @@ struct MemoryMatchView: View {
                 Text(successMessage)
                     .font(.largeTitle.bold())
                     .foregroundColor(.white)
-
                 Button(action: {
                     showSuccess = false
-                    // Start a fully randomized new round with same settings (scores preserved)
                     let animals = vm.generateRandomAnimals(count: vm.pairCount)
                     vm.setupCards(with: animals)
                 }) {
