@@ -278,8 +278,8 @@ struct MemoryMatchView: View {
             }
 
             Button(action: {
-                let animals = vm.cards.map { $0.animalName }.uniquePreservingOrder()
-                vm.setupCards(with: animals)
+                let newAnimals = generateRandomAnimals()
+                vm.setupCards(with: newAnimals)
             }) {
                 Text("Nyt spil")
                     .font(.headline.bold())
@@ -417,8 +417,9 @@ struct MemoryMatchView: View {
 
                 Button(action: {
                     showSuccess = false
-                    let animals = vm.cards.map { $0.animalName }.uniquePreservingOrder()
-                    vm.setupCards(with: animals)
+                    let newAnimals = generateRandomAnimals()
+                    vm.setupCards(with: newAnimals)
+
                 }) {
                     Text("Spil igen")
                         .font(.headline.bold())
@@ -449,6 +450,13 @@ private extension Array where Element == String {
         return out
     }
 }
+
+// MARK: - Helper to generate random animals
+private func generateRandomAnimals() -> [String] {
+    let all = AnimalDatabase.all.map { $0.imageName }
+    return Array(all.shuffled().prefix(8))
+}
+
 
 // MARK: - Preview
 struct MemoryMatchView_Previews: PreviewProvider {
