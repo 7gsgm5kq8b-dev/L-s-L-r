@@ -489,13 +489,20 @@ struct MemoryMatchView: View {
                     showSuccess = true
                 }
             }
-            // Pin footer so it's always visible
+            // Pin footer kun når vi er i spil (ikke på startskærm), eller hvis startImmediately er true
             .safeAreaInset(edge: .bottom) {
-                footerBar
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
-                    .background(Color.white.opacity(0.001))
+                Group {
+                    if !showStartScreen || startImmediately {
+                        footerBar
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 12)
+                            .background(Color.white.opacity(0.001))
+                    } else {
+                        Color.clear.frame(height: 0)
+                    }
+                }
             }
+
         }
     }
 
