@@ -9,10 +9,10 @@ struct Card: Identifiable, Equatable {
     var isMatched: Bool = false
 }
 
-// MARK: - Turn enum
+// MARK: - Turn enum (internal so it can be used by published properties)
 enum Turn {
     case player1
-    case player2 // in singleplayer this is AI
+    case player2 // in singlePlayer this is AI
 }
 
 // MARK: - ViewModel
@@ -27,6 +27,10 @@ final class MemoryMatchViewModel: ObservableObject {
     @Published var pairCount: Int = 8 // number of pairs (8 = 4x4, 16 = 8x4)
     @Published var isSinglePlayer: Bool = true
     @Published var aiDifficulty: Difficulty = .easy
+
+    // Scores preserved between rounds (same philosophy as TicTacToe)
+    @Published var player1Score: Int = 0
+    @Published var player2Score: Int = 0
 
     // Internal
     private var firstSelectedIndex: Int? = nil
@@ -57,6 +61,13 @@ final class MemoryMatchViewModel: ObservableObject {
         self.disableInput = false
         self.currentTurn = .player1
         self.seenCards.removeAll()
+        // Note: player1Score/player2Score are intentionally NOT reset here
+    }
+
+    // Reset scores (call only if you want to clear tournament/session)
+    func resetScores() {
+        player1Score = 0
+        player2Score = 0
     }
 
     // Helper to generate random animals
@@ -92,15 +103,27 @@ final class MemoryMatchViewModel: ObservableObject {
             disableInput = true
 
             if cards[first].animalName == cards[index].animalName {
-                // Match: mark matched, increment matches, same player's turn continues
+                // Match: mark matched, increment matches and current player's score
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                     self.cards[first].isMatched = true
                     self.cards[index].isMatched = true
                     self.matchesFound += 1
+
+                    // Update score for current player
+                    switch self.currentTurn {
+                    case .player1:
+                        self.player1Score += 1
+                    case .player2:
+                        self.player2Score += 1
+                    }
+
+                    // Remove matched from memory
+                    self.forgetMatchedCard(self.cards[first].animalName)
+
                     self.firstSelectedIndex = nil
                     self.disableInput = false
 
-                    // If game complete, leave it to view to show overlay via isGameComplete
+                    // If game complete, leave overlay handling to view
                     // If AI and singleplayer and same player continues, schedule AI again
                     if self.isSinglePlayer && self.currentTurn == .player2 && !self.isGameComplete {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
@@ -202,19 +225,15 @@ final class MemoryMatchViewModel: ObservableObject {
     private func performAIMove() {
         // 1) If known pair exists, take it
         if let (i, j) = findKnownUnmatchedPair() {
-            // Flip i then j using same chooseCard flow but bypass disable checks
-            // We call chooseCard to reuse logic; ensure indices still valid
             if !cards[i].isFaceUp && !cards[i].isMatched {
                 cards[i].isFaceUp = true
                 rememberCard(at: i)
             }
-            // small delay before second flip
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 if !self.cards[j].isFaceUp && !self.cards[j].isMatched {
                     self.cards[j].isFaceUp = true
                     self.rememberCard(at: j)
                 }
-                // Evaluate pair using same logic as chooseCard: simulate second selection
                 self.evaluateAIPair(first: i, second: j)
             }
             return
@@ -249,7 +268,6 @@ final class MemoryMatchViewModel: ObservableObject {
         // Else flip another random unknown B
         let otherUnknowns = unknowns.filter { $0 != a }
         guard let b = otherUnknowns.randomElement() else {
-            // no other unknowns (rare), release lock
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 self.disableInput = false
             }
@@ -287,6 +305,10 @@ final class MemoryMatchViewModel: ObservableObject {
                 self.cards[first].isMatched = true
                 self.cards[second].isMatched = true
                 self.matchesFound += 1
+
+                // AI is player2
+                self.player2Score += 1
+
                 // forget matched from memory
                 self.forgetMatchedCard(name)
                 self.disableInput = false
@@ -402,13 +424,17 @@ struct MemoryMatchView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         // Game header
-                        Text("Vendespil")
-                            .font(.largeTitle.bold())
-                            .padding(.top, 6)
-
-                        Text("Find parene")
-                            .foregroundColor(.gray)
-                            .padding(.bottom, 8)
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text("Vendespil")
+                                    .font(.largeTitle.bold())
+                                Text("Find parene")
+                                    .foregroundColor(.gray)
+                            }
+                            Spacer()
+                        }
+                        .padding(.top, 6)
+                        .padding(.horizontal, 12)
 
                         // Grid
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: tileSpacing), count: cols), spacing: tileSpacing) {
@@ -447,7 +473,16 @@ struct MemoryMatchView: View {
             }
             .onChange(of: vm.matchesFound) { _ in
                 if vm.isGameComplete {
-                    successMessage = "Flot! Du fandt alle parene!"
+                    // Determine winner by comparing player scores for this round
+                    // (If you prefer to determine winner by who found last pair, adjust accordingly)
+                    if vm.player1Score > vm.player2Score {
+                        successMessage = "Spiller 1 vandt runden!"
+                    } else if vm.player2Score > vm.player1Score {
+                        successMessage = "Spiller 2 vandt runden!"
+                    } else {
+                        successMessage = "Runden endte uafgjort"
+                    }
+
                     AudioVoiceManager.shared.speakWithFallback(aiFile: "win_match") {
                         speechManager.speak(successMessage)
                     }
@@ -477,7 +512,7 @@ struct MemoryMatchView: View {
             }
 
             Button(action: {
-                // New random game with same settings
+                // New random game with same settings (scores preserved)
                 let animals = vm.generateRandomAnimals(count: vm.pairCount)
                 vm.setupCards(with: animals)
             }) {
@@ -584,20 +619,87 @@ struct MemoryMatchView: View {
         return base.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
-    // MARK: - Footer Bar
+    // MARK: - Footer Bar (uden dyreikoner)
     private var footerBar: some View {
-        HStack {
-            Text("Træk: \(vm.moves)")
-                .font(.headline)
+        HStack(spacing: 16) {
+            // Venstre: Moves
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.gray)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Træk")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Text("\(vm.moves)")
+                        .font(.headline.bold())
+                        .accessibilityLabel("Træk")
+                        .accessibilityValue("\(vm.moves)")
+                }
+            }
 
             Spacer()
 
-            Text("Stik: \(vm.matchesFound)")
-                .font(.headline)
+            // Spiller 1 (tekst + score)
+            VStack(alignment: .center, spacing: 2) {
+                Text("Spiller 1")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                Text("\(vm.player1Score)")
+                    .font(.headline.bold())
+                    .accessibilityLabel("Spiller 1 score")
+                    .accessibilityValue("\(vm.player1Score)")
+            }
+
+            Spacer(minLength: 12)
+
+            // Spiller 2 (tekst + score)
+            VStack(alignment: .center, spacing: 2) {
+                Text("Spiller 2")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                Text("\(vm.player2Score)")
+                    .font(.headline.bold())
+                    .accessibilityLabel("Spiller 2 score")
+                    .accessibilityValue("\(vm.player2Score)")
+            }
+
+            Spacer()
+
+            // Højre: Matches
+            HStack(spacing: 10) {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("Stik")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Text("\(vm.matchesFound)")
+                        .font(.headline.bold())
+                        .accessibilityLabel("Stik")
+                        .accessibilityValue("\(vm.matchesFound)")
+                }
+                Image(systemName: "suit.club.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.gray)
+                    .accessibilityHidden(true)
+            }
         }
-        .padding(.vertical, 6)
-        .background(Color.white)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .background(
+            Group {
+                if #available(iOS 15.0, *) {
+                    Color(.systemBackground).opacity(0.95)
+                } else {
+                    Color.white
+                }
+            }
+        )
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
     }
+
+
 
     // MARK: - Start Screen
     private var startScreen: some View {
@@ -713,7 +815,7 @@ struct MemoryMatchView: View {
 
                 Button(action: {
                     showSuccess = false
-                    // Start a fully randomized new round with same settings
+                    // Start a fully randomized new round with same settings (scores preserved)
                     let animals = vm.generateRandomAnimals(count: vm.pairCount)
                     vm.setupCards(with: animals)
                 }) {
