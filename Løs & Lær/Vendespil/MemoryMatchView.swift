@@ -54,10 +54,23 @@ final class MemoryMatchViewModel: ObservableObject {
 
     private var firstSelectedIndex: Int? = nil
     private let flipBackDelay: TimeInterval = 0.7
-
+    
     // For AI memory
     private var seenCards: [String: Set<Int>] = [:]
     private var cancellables = Set<AnyCancellable>()
+    
+    // AI tuning
+    /// aiMistakeChance: Sandsynlighed (0.0..1.0) for at AI laver en "fejl" i stedet for at vælge det kendte rigtige kort.
+    /// Højere = mere fejl (fx 0.80 betyder 0% chance for at lave en fejl).
+    /// 4‑årig niveau: `aiMistakeChance =0.6 … 0.75, `aiFlipDelayMultiplier= 1.6 … 2.2
+    /// Let voksen‑niveau: `aiMistakeChance= 0.25, aiFlipDelayMultiplier = 1.0
+    /// Voksen/hard: `aiMistakeChance = 0.05 aiFlipDelayMultiplier = 0.9
+        var aiMistakeChance: Double = 0.80
+
+    /// Multiplikator for AI's flip/tænkeforsinkelser. 1.0 = normal, >1 = langsommere.
+        var aiFlipDelayMultiplier: Double = 2.0
+
+    
 
     init(animalNames: [String], pairCount: Int = 8, singlePlayer: Bool = false, aiDifficulty: Difficulty = .easy) {
         self.pairCount = pairCount
@@ -142,7 +155,9 @@ final class MemoryMatchViewModel: ObservableObject {
                     }
                 }
             } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + flipBackDelay) {
+                let effectiveFlipBack = flipBackDelay * (isSinglePlayer && currentTurn == .player2 ? aiFlipDelayMultiplier : 1.0)
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + effectiveFlipBack) {
                     self.cards[first].isFaceUp = false
                     self.cards[index].isFaceUp = false
                     self.firstSelectedIndex = nil
@@ -152,11 +167,12 @@ final class MemoryMatchViewModel: ObservableObject {
                     self.currentTurn = (self.currentTurn == .player1) ? .player2 : .player1
 
                     if self.isSinglePlayer && self.currentTurn == .player2 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 * self.aiFlipDelayMultiplier) {
                             self.aiTakeTurnIfNeeded()
                         }
                     }
                 }
+
             }
         } else {
             firstSelectedIndex = index
@@ -209,12 +225,16 @@ final class MemoryMatchViewModel: ObservableObject {
 
     // MARK: - AI logic (kopieret fra 202000 med små tilpasninger)
     private func aiThinkDelay() -> TimeInterval {
+        let base: TimeInterval
         switch aiDifficulty {
-        case .easy: return 0.45
-        case .hard: return 0.7
-        default: return 0.5
+        case .easy: base = 0.35
+        case .hard: base = 0.35
+        default: base = 0.5
         }
+        // Gør AI langsommere ved at gange med multiplikator
+        return base * max(1.0, aiFlipDelayMultiplier)
     }
+
 
     func aiTakeTurnIfNeeded() {
         guard isSinglePlayer else { return }
@@ -230,12 +250,51 @@ final class MemoryMatchViewModel: ObservableObject {
     private func performAIMove() {
         // 1) known pair
         if let (i, j) = findKnownUnmatchedPair() {
+            // With some probability, make a mistake and flip a random unknown instead
+            if Double.random(in: 0...1) < aiMistakeChance {
+                let unknowns = indicesOfUnknownCards()
+                if let randomIdx = unknowns.randomElement() {
+                    cards[randomIdx].isFaceUp = true
+                    rememberCard(at: randomIdx)
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 * self.aiFlipDelayMultiplier) { [weak self] in
+                        guard let self = self else { return }
+                        // Try to continue from this random flip
+                        if let matchIndex = self.findMatchForCard(at: randomIdx) {
+                            if !self.cards[matchIndex].isFaceUp && !self.cards[matchIndex].isMatched {
+                                self.cards[matchIndex].isFaceUp = true
+                                self.rememberCard(at: matchIndex)
+                            }
+                            self.evaluateAIPair(first: randomIdx, second: matchIndex)
+                        } else {
+                            // Flip another random if no known match
+                            let otherUnknowns = unknowns.filter { $0 != randomIdx }
+                            if let b = otherUnknowns.randomElement() {
+                                if !self.cards[b].isFaceUp && !self.cards[b].isMatched {
+                                    self.cards[b].isFaceUp = true
+                                    self.rememberCard(at: b)
+                                }
+                                self.evaluateAIPair(first: randomIdx, second: b)
+                            } else {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12 * self.aiFlipDelayMultiplier) { [weak self] in
+                                    guard let self = self else { return }
+                                    self.disableInput = false
+                                }
+                            }
+                        }
+                    }
+                    return
+                }
+            }
+
+            // Normal (non-mistake) behaviour: flip i then j
             if !cards[i].isFaceUp && !cards[i].isMatched {
                 cards[i].isFaceUp = true
                 rememberCard(at: i)
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 * self.aiFlipDelayMultiplier) { [weak self] in
+                guard let self = self else { return }
                 if !self.cards[j].isFaceUp && !self.cards[j].isMatched {
                     self.cards[j].isFaceUp = true
                     self.rememberCard(at: j)
@@ -259,9 +318,27 @@ final class MemoryMatchViewModel: ObservableObject {
         cards[a].isFaceUp = true
         rememberCard(at: a)
 
-        // If we already know a matching index for A, flip it
+        // If we already know a matching index for A, maybe make a mistake and ignore it
         if let matchIndex = findMatchForCard(at: a) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            if Double.random(in: 0...1) < aiMistakeChance {
+                // choose another random unknown instead of the known match
+                let otherUnknowns = unknowns.filter { $0 != a }
+                if let b = otherUnknowns.randomElement() {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 * self.aiFlipDelayMultiplier) { [weak self] in
+                        guard let self = self else { return }
+                        if !self.cards[b].isFaceUp && !self.cards[b].isMatched {
+                            self.cards[b].isFaceUp = true
+                            self.rememberCard(at: b)
+                        }
+                        self.evaluateAIPair(first: a, second: b)
+                    }
+                    return
+                }
+            }
+
+            // Normal behaviour: flip the known match
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 * self.aiFlipDelayMultiplier) { [weak self] in
+                guard let self = self else { return }
                 if !self.cards[matchIndex].isFaceUp && !self.cards[matchIndex].isMatched {
                     self.cards[matchIndex].isFaceUp = true
                     self.rememberCard(at: matchIndex)
@@ -274,13 +351,15 @@ final class MemoryMatchViewModel: ObservableObject {
         // Else flip another random unknown B
         let otherUnknowns = unknowns.filter { $0 != a }
         guard let b = otherUnknowns.randomElement() else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12 * self.aiFlipDelayMultiplier) { [weak self] in
+                guard let self = self else { return }
                 self.disableInput = false
             }
             return
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 * self.aiFlipDelayMultiplier) { [weak self] in
+            guard let self = self else { return }
             if !self.cards[b].isFaceUp && !self.cards[b].isMatched {
                 self.cards[b].isFaceUp = true
                 self.rememberCard(at: b)
@@ -288,6 +367,7 @@ final class MemoryMatchViewModel: ObservableObject {
             self.evaluateAIPair(first: a, second: b)
         }
     }
+
 
     private func evaluateAIPair(first: Int, second: Int) {
         guard cards.indices.contains(first), cards.indices.contains(second) else {
@@ -318,12 +398,15 @@ final class MemoryMatchViewModel: ObservableObject {
                 }
             }
         } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + flipBackDelay) {
+            let effectiveFlipBack = flipBackDelay * (isSinglePlayer && currentTurn == .player2 ? aiFlipDelayMultiplier : 1.0)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + effectiveFlipBack) {
                 self.cards[first].isFaceUp = false
                 self.cards[second].isFaceUp = false
                 self.disableInput = false
                 self.currentTurn = .player1
             }
+
         }
     }
 
@@ -342,6 +425,9 @@ struct MemoryMatchView: View {
 
     @StateObject private var vm: MemoryMatchViewModel
     @StateObject private var speechManager = SpeechManager()
+    
+    @State private var audioPlayer: AVAudioPlayer? = nil
+
 
     // UI state
     @State private var showStartScreen: Bool = true
@@ -546,19 +632,34 @@ struct MemoryMatchView: View {
             }
             .onChange(of: vm.matchesFound) { _ in
                 if vm.isGameComplete {
-                    if vm.player1Score > vm.player2Score {
-                        successMessage = "Spiller 1 vandt runden!"
-                    } else if vm.player2Score > vm.player1Score {
-                        successMessage = "Spiller 2 vandt runden!"
+                    if selectedMode == .solo {
+                        // Enkel solo‑besked og/eller solo‑audio
+                        successMessage = "Flot, du vandt!"
+                        // Hvis du har en solo MP3, skift "Solo_Win" til dit filnavn; ellers fallback til TTS
+                        if Bundle.main.url(forResource: "Solo_Win", withExtension: "mp3") != nil {
+                            playVictoryAudio(named: "Solo_Win", fallbackText: successMessage)
+                        } else {
+                            speechManager.speak(successMessage)
+                        }
                     } else {
-                        successMessage = "Runden endte uafgjort"
+                        // Multiplayer / vsAI: brug de specifikke vindere eller uafgjort lyde
+                        if vm.player1Score > vm.player2Score {
+                            successMessage = "Spiller 1 vandt runden!"
+                            playVictoryAudio(named: "Win_Player1", fallbackText: successMessage)
+                        } else if vm.player2Score > vm.player1Score {
+                            successMessage = "Spiller 2 vandt runden!"
+                            playVictoryAudio(named: "Win_Player2", fallbackText: successMessage)
+                        } else {
+                            successMessage = "Runden endte uafgjort"
+                            playVictoryAudio(named: "Memory_Draw", fallbackText: successMessage)
+                        }
                     }
-                    AudioVoiceManager.shared.speakWithFallback(aiFile: "win_match") {
-                        speechManager.speak(successMessage)
-                    }
+
                     showSuccess = true
                 }
             }
+
+
             // Turn change: only play banana/apple turn audio when mode is vsAI or twoPlayer
             .onChange(of: vm.currentTurn) { newTurn in
                 guard selectedMode != .solo else { return } // only in vsAI or twoPlayer
@@ -745,6 +846,30 @@ struct MemoryMatchView: View {
         let base = animalName.replacingOccurrences(of: "animal_", with: "")
         return base.replacingOccurrences(of: "_", with: " ").capitalized
     }
+
+    // MARK: - Speak helpers WIN
+    private func playVictoryAudio(named fileName: String, fallbackText: String) {
+        // Forsøg at finde filen i bundle
+        guard let url = Bundle.main.url(forResource: fileName, withExtension: "mp3") else {
+            // fallback til TTS hvis fil mangler
+            speechManager.speak(fallbackText)
+            return
+        }
+
+        do {
+            // Sørg for at lyd kan afspilles (duck others så UI‑lyde ikke forsvinder helt)
+            try AVAudioSession.sharedInstance().setCategory(.playback, options: [.duckOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+
+            audioPlayer = try AVAudioPlayer(contentsOf: url)
+            audioPlayer?.prepareToPlay()
+            audioPlayer?.play()
+        } catch {
+            // Hvis afspilning fejler, fallback til TTS
+            speechManager.speak(fallbackText)
+        }
+    }
+
 
     // MARK: - Footer Bar
     private var footerBar: some View {
@@ -942,6 +1067,9 @@ struct MemoryMatchView: View {
                 case .vsAI:
                     vm.isSinglePlayer = true
                     vm.aiDifficulty = showSettingsDifficulty
+                    // Tuning for child level
+                    vm.aiMistakeChance = 0.75            // 60% chance for at lave "fejl"
+                    vm.aiFlipDelayMultiplier = 2.0      // ca. 1.8x langsommere flips
                 case .twoPlayer:
                     vm.isSinglePlayer = false
                 }
@@ -1032,8 +1160,23 @@ struct MemoryMatchView: View {
                     .foregroundColor(.white)
                 Button(action: {
                     showSuccess = false
+
+                    // Nulstil scores for multiplayer modes
+                    if selectedMode != .solo {
+                        vm.resetScores()
+                    }
+
+                    // Genstart runden
                     let animals = vm.generateRandomAnimals(count: vm.pairCount)
                     vm.setupCards(with: animals)
+
+                    // Sørg for at turen starter ved player1
+                    vm.currentTurn = .player1
+
+                    // Hvis vi spiller mod AI og AI starter, trig AI
+                    if vm.isSinglePlayer && vm.currentTurn == .player2 {
+                        vm.aiTakeTurnIfNeeded()
+                    }
                 }) {
                     Text("Spil igen")
                         .font(.headline.bold())
