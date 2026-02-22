@@ -28,6 +28,7 @@ let enabledGames: [GameSelection] = [
     .labyrinthWords,
     .animals,
     .ticTacToe,
+    .memoryMatch,
     .clock
     // Senere kan du tilføje: .clock,
 ]

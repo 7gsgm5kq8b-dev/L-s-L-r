@@ -123,6 +123,20 @@ struct AllGamesModeView: View {
                     )
                     .environmentObject(session)   // ⭐
 
+                case .memoryMatch:
+                    MemoryMatchView(
+                        difficulty: difficulty,
+                        startImmediately: true, // ⭐ tving AllGames‑mode til at starte direkte
+                        onExit: {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                nextGame()
+                            }
+                        },
+                        onBackToHub: onExit
+                    )
+                    .environmentObject(session) // vigtig: del global session (global score)
+
+                    
                 default:
                     EmptyView()
                 }

@@ -55,6 +55,8 @@ final class MemoryMatchViewModel: ObservableObject {
     private var firstSelectedIndex: Int? = nil
     private let flipBackDelay: TimeInterval = 0.7
     
+
+    
     // For AI memory
     private var seenCards: [String: Set<Int>] = [:]
     private var cancellables = Set<AnyCancellable>()
@@ -428,9 +430,12 @@ struct MemoryMatchView: View {
     
     @State private var audioPlayer: AVAudioPlayer? = nil
 
+    //enable allgamemode
+    @EnvironmentObject var session: GameSessionManager
 
     // UI state
     @State private var showStartScreen: Bool = true
+    @State private var showSuccessButton: Bool = false
     @State private var showSuccess: Bool = false
     @State private var successMessage: String = ""
     @State private var showSettingsDifficulty: Difficulty = .easy
@@ -613,23 +618,32 @@ struct MemoryMatchView: View {
                     }
                 }
 
-
                 if startImmediately {
+                    // AllGames: start MemoryMatch i SOLO mode, skip startskærm og brug global score
                     showStartScreen = false
-                    // default to vsAI if started immediately
-                    selectedMode = .vsAI
-                    vm.isSinglePlayer = true
-                    vm.aiDifficulty = difficulty
+                    selectedMode = .solo
+
+                    // Ingen AI i solo mode: isSinglePlayer = false (i din ViewModel betyder isSinglePlayer "er der en AI modstander?")
+                    vm.isSinglePlayer = false
+                    vm.aiDifficulty = difficulty // hold sync, selvom ikke brugt i solo
+
+                    // Brug global score fra session som player1Score (samme mønster som i TicTacToeView)
+                    vm.player1Score = session.allGameScore
+
+                    // Opsæt kort og grid som normalt
                     let pairs = MemoryMatchViewModel.pairCount(for: difficulty)
                     vm.pairCount = pairs
                     vm.gridColumns = (pairs == 8) ? 4 : 8
                     let animals = vm.generateRandomAnimals(count: pairs)
                     vm.setupCards(with: animals)
-                    if vm.currentTurn == .player2 {
-                        vm.aiTakeTurnIfNeeded()
-                    }
+
+                    // Ingen AI tur i solo, så vi kalder ikke vm.aiTakeTurnIfNeeded()
+                } else {
+                    // Normal flow når ikke startet fra AllGames
+                    showSettingsDifficulty = difficulty
                 }
             }
+
             .onChange(of: vm.matchesFound) { _ in
                 if vm.isGameComplete {
                     if selectedMode == .solo {
@@ -1160,22 +1174,30 @@ struct MemoryMatchView: View {
                     .foregroundColor(.white)
                 Button(action: {
                     showSuccess = false
+                    showSuccessButton = false
 
-                    // Nulstil scores for multiplayer modes
-                    if selectedMode != .solo {
-                        vm.resetScores()
-                    }
+                    if !startImmediately {
+                        // Normal flow: genstart MemoryMatch lokalt
+                        // Nulstil scores for multiplayer modes hvis ønsket
+                        if selectedMode != .solo {
+                            vm.resetScores()
+                        }
 
-                    // Genstart runden
-                    let animals = vm.generateRandomAnimals(count: vm.pairCount)
-                    vm.setupCards(with: animals)
+                        // Genstart runden lokalt
+                        let animals = vm.generateRandomAnimals(count: vm.pairCount)
+                        vm.setupCards(with: animals)
 
-                    // Sørg for at turen starter ved player1
-                    vm.currentTurn = .player1
+                        // Sørg for at turen starter ved player1
+                        vm.currentTurn = .player1
 
-                    // Hvis vi spiller mod AI og AI starter, trig AI
-                    if vm.isSinglePlayer && vm.currentTurn == .player2 {
-                        vm.aiTakeTurnIfNeeded()
+                        // Hvis vi spiller mod AI og AI starter, trig AI
+                        if vm.isSinglePlayer && vm.currentTurn == .player2 {
+                            vm.aiTakeTurnIfNeeded()
+                        }
+                    } else {
+                        // AllGames flow: signaler til AllGames at spillet er færdigt
+                        // AllGamesModeView's onExit closure håndterer nextGame() og session.increment()
+                        onExit()
                     }
                 }) {
                     Text("Spil igen")
@@ -1187,6 +1209,7 @@ struct MemoryMatchView: View {
                         .cornerRadius(14)
                         .shadow(radius: 4)
                 }
+
             }
             .padding()
         }
