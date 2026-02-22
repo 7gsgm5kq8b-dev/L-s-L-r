@@ -894,6 +894,7 @@ struct MemoryMatchView: View {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(.gray)
                     .accessibilityHidden(true)
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Træk")
                         .font(.caption)
@@ -928,6 +929,24 @@ struct MemoryMatchView: View {
                 }
             }
 
+            // Hvis vi er i AllGames (startImmediately) men ikke multiplayer, vis global score også
+            if selectedMode == .solo && startImmediately {
+                Spacer(minLength: 12)
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Score")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        Text("\(session.allGameScore)")
+                            .font(.headline.bold())
+                            .accessibilityLabel("Score")
+                            .accessibilityValue("\(session.allGameScore)")
+                    }
+                    Image(systemName: "star.fill")
+                        .foregroundColor(.yellow)
+                        .font(.system(size: 18, weight: .semibold))
+                }
+            }
 
             Spacer(minLength: 12)
 
@@ -952,10 +971,9 @@ struct MemoryMatchView: View {
                 }
             }
 
-
             Spacer()
 
-            // Matches (vis kun i solo)
+            // Matches / Stik
             if selectedMode == .solo {
                 HStack(spacing: 10) {
                     VStack(alignment: .trailing, spacing: 2) {
@@ -967,11 +985,13 @@ struct MemoryMatchView: View {
                             .accessibilityLabel("Stik")
                             .accessibilityValue("\(vm.matchesFound)")
                     }
-                    Image(systemName: "star.fill")
+                    // Nyt ikon for "Stik" (skift hvis du foretrækker andet)
+                    Image(systemName: "trophy.fill")
                         .foregroundColor(.yellow)
                         .font(.system(size: 18, weight: .semibold))
                 }
             }
+
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 10)
@@ -987,6 +1007,7 @@ struct MemoryMatchView: View {
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
     }
+
 
     // MARK: - Start Screen (grafiske bokse)
     private var startScreen: some View {
