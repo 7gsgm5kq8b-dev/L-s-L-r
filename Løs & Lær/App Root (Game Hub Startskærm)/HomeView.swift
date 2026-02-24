@@ -64,6 +64,12 @@ struct HomeView: View {
                         onNotReady(.allGames)
                     }
                 }
+                
+                IconTileButton(iconName: "icon_guess_animal") {
+                    selectedGame = .guessAnimal
+                }
+
+                
             }
             .padding(.horizontal, 20)
 

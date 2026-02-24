@@ -17,6 +17,7 @@ enum GameSelection: CaseIterable {
     case animals
     case ticTacToe
     case memoryMatch
+    case guessAnimal
     case allGames
 }
 
@@ -129,6 +130,15 @@ struct ContentView: View {
                     onExit: { selectedGame = .none },
                     onBackToHub: { selectedGame = .none }
                 )
+
+            case .guessAnimal:
+                GuessAnimalView(
+                    difficulty: difficulty,
+                    startImmediately: false,                 // hub: vis startskærm
+                    onExit: { selectedGame = .none },        // når spillet afslutter sig selv
+                    onBackToHub: { selectedGame = .none }    // når brugeren trykker tilbage
+                )
+                .environmentObject(session) // behold kun hvis GuessAnimalView bruger session
 
             }
         }
