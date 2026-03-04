@@ -57,6 +57,20 @@ final class AudioVoiceManager: NSObject {
     // Retain aktive controllers så de ikke deallokeres midt i afspilning
     private var activeControllers: [SequenceController] = []
 
+    // Stop al afspilning (bruges når man forlader en skærm/spil)
+    func stopAll() {
+        for player in activePlayers {
+            player.stop()
+        }
+        activePlayers.removeAll()
+        playerCompletions.removeAll()
+
+        for controller in activeControllers {
+            controller.stop()
+        }
+        activeControllers.removeAll()
+    }
+
     // MARK: - Intern helper: retain & play for speakWithFallback
     private func retainAndPlay(player: AVAudioPlayer, completion: (() -> Void)?) {
         activePlayers.append(player)
@@ -89,6 +103,7 @@ final class AudioVoiceManager: NSObject {
         private var player: AVAudioPlayer?
         private var completion: (() -> Void)?
         private var finishedCallback: (() -> Void)?
+        private var isStopped = false
 
         init(aiFiles: [String?], segmentTexts: [String?], debug: Bool, completion: (() -> Void)?) {
             self.aiFiles = aiFiles
@@ -100,10 +115,21 @@ final class AudioVoiceManager: NSObject {
 
         func start(finished: @escaping () -> Void) {
             self.finishedCallback = finished
+            isStopped = false
             playNext()
         }
 
+        func stop() {
+            isStopped = true
+            completion = nil
+            finishedCallback = nil
+            player?.stop()
+            player = nil
+        }
+
         private func playNext() {
+            guard !isStopped else { return }
+
             if index >= aiFiles.count {
                 completion?()
                 finishedCallback?()
@@ -132,21 +158,36 @@ final class AudioVoiceManager: NSObject {
         }
 
         private func runTTSThenContinue(text: String?) {
+            guard !isStopped else { return }
+
             guard let text = text, !text.isEmpty else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in self?.playNext() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                    guard let self else { return }
+                    guard !self.isStopped else { return }
+                    self.playNext()
+                }
                 return
             }
             if debug { print("[AudioVoiceManager] TTS segment: \"\(text)\"") }
             let tts = SpeechManager()
             tts.speak(text) { [weak self] in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in self?.playNext() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                    guard let self else { return }
+                    guard !self.isStopped else { return }
+                    self.playNext()
+                }
             }
         }
 
         // AVAudioPlayerDelegate
         func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
             self.player = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in self?.playNext() }
+            guard !isStopped else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                guard let self else { return }
+                guard !self.isStopped else { return }
+                self.playNext()
+            }
         }
     }
 }

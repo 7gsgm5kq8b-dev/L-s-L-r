@@ -88,7 +88,359 @@ private let pocAnimals: [GuessAnimal] = [
         audioFile: "animal_penguin",
         clues: ["Den kan ikke flyve, men svømmer godt.", "Den går på to ben og vralter.", "Den bor i kolde egne."],
         synonyms: ["pingvin", "pingvinen"]
-    )
+    ),
+    
+    GuessAnimal(
+        displayName: "Kanin",
+        imageName: "animal_rabbit",
+        audioFile: "animal_rabbit",
+        clues: ["Den hopper rundt.", "Den har lange ører.", "Den spiser gulerødder."],
+        synonyms: ["kanin","kaninen","hare"]
+    ),
+    GuessAnimal(
+        displayName: "Panda",
+        imageName: "animal_panda",
+        audioFile: "animal_panda",
+        clues: ["Den spiser bambus.", "Den har sort‑hvide pletter.", "Den ser blød og rund ud."],
+        synonyms: ["panda","pandaen"]
+    ),
+    GuessAnimal(
+        displayName: "Giraf",
+        imageName: "animal_giraffe",
+        audioFile: "animal_giraffe",
+        clues: ["Den har en meget lang hals.", "Den spiser blade højt oppe i træer.", "Den har pletter på kroppen."],
+        synonyms: ["giraf","giraffen"]
+    ),
+    GuessAnimal(
+        displayName: "Zebra",
+        imageName: "animal_zebra",
+        audioFile: "animal_zebra",
+        clues: ["Den har sort‑hvide striber.", "Den ligner en hest.", "Den lever på savannen."],
+        synonyms: ["zebra","zebraen"]
+    ),
+    GuessAnimal(
+        displayName: "Koala",
+        imageName: "animal_koala",
+        audioFile: "animal_koala",
+        clues: ["Den sover meget i træer.", "Den spiser eukalyptusblade.", "Den har blødt gråt pels."],
+        synonyms: ["koala","koalaen"]
+    ),
+    GuessAnimal(
+        displayName: "Odder",
+        imageName: "animal_otter",
+        audioFile: "animal_otter",
+        clues: ["Den svømmer og leger i vand.", "Den holder ofte mad på maven.", "Den har en lang, glat krop."],
+        synonyms: ["odder","odderen"]
+    ),
+    GuessAnimal(
+        displayName: "Ugle",
+        imageName: "animal_owl",
+        audioFile: "animal_owl",
+        clues: ["Den er vågen om natten.", "Den kan dreje hovedet meget langt.", "Den siger 'uuuh' eller 'hoot'."],
+        synonyms: ["ugle","uglen"]
+    ),
+    GuessAnimal(
+        displayName: "Lunde",
+        imageName: "animal_puffin",
+        audioFile: "animal_puffin",
+        clues: ["Den har en farverig næb.", "Den bor ved kysten og klipper.", "Den kan flyve og dykke."],
+        synonyms: ["lunde","puffin","lunden"]
+    ),
+    GuessAnimal(
+        displayName: "Quokka",
+        imageName: "animal_quokka",
+        audioFile: "animal_quokka",
+        clues: ["Den er lille og ser altid glad ud.", "Den bor i Australien.", "Den er en lille pungdyr."],
+        synonyms: ["quokka","quokkaen"]
+    ),
+    GuessAnimal(
+        displayName: "Flamingo",
+        imageName: "animal_flamingo",
+        audioFile: "animal_flamingo",
+        clues: ["Den står ofte på ét ben.", "Den har lyserødt fjerdragt.", "Den lever ved søer og laguner."],
+        synonyms: ["flamingo","flamingoen"]
+    ),
+    GuessAnimal(
+        displayName: "Pindsvin",
+        imageName: "animal_hedgehog",
+        audioFile: "animal_hedgehog",
+        clues: ["Den ruller sig sammen for at beskytte sig.", "Den har mange små pigge.", "Den spiser insekter."],
+        synonyms: ["pindsvin","pindsvinet"]
+    ),
+    GuessAnimal(
+        displayName: "Surikat",
+        imageName: "animal_meerkat",
+        audioFile: "animal_meerkat",
+        clues: ["Den står oprejst for at holde udkig.", "Den bor i en gruppe i ørkenen.", "Den er nysgerrig og lille."],
+        synonyms: ["surikat","surikaten","meerkat"]
+    ),
+    GuessAnimal(
+        displayName: "Blæksprutte",
+        imageName: "animal_octopus",
+        audioFile: "animal_octopus",
+        clues: ["Den har otte arme.", "Den kan skifte farve.", "Den bor i havet."],
+        synonyms: ["blæksprutte","octopus","blæksprutten"]
+    ),
+    GuessAnimal(
+        displayName: "Sæl",
+        imageName: "animal_seal",
+        audioFile: "animal_seal",
+        clues: ["Den svømmer godt og hviler på klipper.", "Den har finner i stedet for ben.", "Den siger nogle gange en pibende lyd."],
+        synonyms: ["sæl","sælen"]
+    ),
+    GuessAnimal(
+        displayName: "Skildpadde",
+        imageName: "animal_turtle",
+        audioFile: "animal_turtle",
+        clues: ["Den har et hårdt skjold.", "Den bevæger sig langsomt på land.", "Nogle kan svømme langt i havet."],
+        synonyms: ["skildpadde","turtle","skildpadden"]
+    ),
+    GuessAnimal(
+        displayName: "Tukan",
+        imageName: "animal_toucan",
+        audioFile: "animal_toucan",
+        clues: ["Den har et stort, farverigt næb.", "Den bor i tropiske skove.", "Den kan sidde på grene og kigge rundt."],
+        synonyms: ["tukan","toucan","tukanen"]
+    ),
+    GuessAnimal(
+        displayName: "Tiger",
+        imageName: "animal_tiger",
+        audioFile: "animal_tiger",
+        clues: ["Den har striber på kroppen.", "Den er en stor kat.", "Den kan brøle og snige sig i græsset."],
+        synonyms: ["tiger","tigeren"]
+    ),
+    GuessAnimal(
+        displayName: "Abe",
+        imageName: "animal_monkey",
+        audioFile: "animal_monkey",
+        clues: ["Den klatrer i træer.", "Den kan svinge sig i grene.", "Den kan lave sjove lyde."],
+        synonyms: ["abe","aber","monkey"]
+    ),
+    GuessAnimal(
+        displayName: "Sommerfugl",
+        imageName: "animal_butterfly",
+        audioFile: "animal_butterfly",
+        clues: ["Den flyver fra blomst til blomst.", "Den har farverige vinger.", "Den starter som en larve."],
+        synonyms: ["sommerfugl","butterfly"]
+    ),
+    GuessAnimal(
+        displayName: "Egern",
+        imageName: "animal_squirrel",
+        audioFile: "animal_squirrel",
+        clues: ["Den samler nødder og gemmer dem.", "Den har en busket hale.", "Den klatrer hurtigt i træer."],
+        synonyms: ["egern","egernet","squirrel"]
+    ),
+        GuessAnimal(
+            displayName: "Antilope",
+            imageName: "animal_antelope",
+            audioFile: "animal_antilope",
+            clues: ["Den løber hurtigt på savannen.", "Den har slanke ben og horn.", "Den lever i flokke."],
+            synonyms: ["antilope","antilopen"]
+        ),
+        GuessAnimal(
+            displayName: "Bæltedyr",
+            imageName: "animal_armadillo",
+            audioFile: "animal_armadillo",
+            clues: ["Den har en hård skal på ryggen.", "Den kan rulle sig sammen.", "Den graver efter insekter."],
+            synonyms: ["bæltedyr","bæltedyret","armadillo"]
+        ),
+        GuessAnimal(
+            displayName: "Axolotl",
+            imageName: "animal_axolotl",
+            audioFile: "animal_axolotl",
+            clues: ["Den er en lille vandlevende salamander.", "Den har ydre gæller som fjer.", "Den lever i søer og damme."],
+            synonyms: ["axolotl","axolotlen"]
+        ),
+        GuessAnimal(
+            displayName: "Flagermus",
+            imageName: "animal_bat",
+            audioFile: "animal_bat",
+            clues: ["Den flyver om natten.", "Den bruger ekkolokation til at finde mad.", "Den hænger ofte op og ned."],
+            synonyms: ["flagermus","flagermusen","bat"]
+        ),
+        GuessAnimal(
+            displayName: "Bæver",
+            imageName: "animal_baever",
+            audioFile: "animal_baever",
+            clues: ["Den bygger dæmninger i vandløb.", "Den har store flade tænder.", "Den har en bred, flad hale."],
+            synonyms: ["bæver","bæveren","beaver"]
+        ),
+        GuessAnimal(
+            displayName: "Skovbøffel",
+            imageName: "animal_buffalo",
+            audioFile: "animal_buffalo",
+            clues: ["Den er stor og kraftig.", "Den har horn på hovedet.", "Den går i flokke på græsarealer."],
+            synonyms: ["skovbøffel","buffalo","bøffel"]
+        ),
+        GuessAnimal(
+            displayName: "Kamæleon",
+            imageName: "animal_chameleon",
+            audioFile: "animal_chameleon",
+            clues: ["Den kan skifte farve.", "Den har en lang klæbrig tunge.", "Den klatrer i grene."],
+            synonyms: ["kamæleon","kamæleonen","chameleon"]
+        ),
+        GuessAnimal(
+            displayName: "Gepard",
+            imageName: "animal_cheetah",
+            audioFile: "animal_cheetah",
+            clues: ["Den er verdens hurtigste landdyr.", "Den har sorte pletter på gul pels.", "Den jager ofte alene."],
+            synonyms: ["gepard","geparden","cheetah"]
+        ),
+        GuessAnimal(
+            displayName: "Chimpanse",
+            imageName: "animal_chimpanzee",
+            audioFile: "animal_chimpanzee",
+            clues: ["Den er en klog abe.", "Den bruger redskaber til at finde mad.", "Den lever i tropiske skove."],
+            synonyms: ["chimpanse","chimpansen","chimpanzee"]
+        ),
+        GuessAnimal(
+            displayName: "Krabbe",
+            imageName: "animal_crab",
+            audioFile: "animal_crab",
+            clues: ["Den har store klosakse.", "Den går ofte sidelæns.", "Den lever ved kysten og i tidevandszoner."],
+            synonyms: ["krabbe","krabben"]
+        ),
+        GuessAnimal(
+            displayName: "Gorilla",
+            imageName: "animal_gorilla",
+            audioFile: "animal_gorilla",
+            clues: ["Den er en stor abe med kraftige arme.", "Den bor i skove og lever i familier.", "Den kan slå brystet med hænderne."],
+            synonyms: ["gorilla","gorillaen"]
+        ),
+        GuessAnimal(
+            displayName: "Flodhest",
+            imageName: "animal_hippo",
+            audioFile: "animal_hippo",
+            clues: ["Den tilbringer meget tid i vand.", "Den har en stor mund og tænder.", "Den er tung og kraftig."],
+            synonyms: ["flodhest","hippo","flodhesten"]
+        ),
+        GuessAnimal(
+            displayName: "Hyæne",
+            imageName: "animal_hyæne",
+            audioFile: "animal_hyæne",
+            clues: ["Den har en karakteristisk latter‑lyd.", "Den lever i savanneområder.", "Den er en dygtig jæger og ådselæder."],
+            synonyms: ["hyæne","hyænen"]
+        ),
+        GuessAnimal(
+            displayName: "Gople",
+            imageName: "animal_jellyfish",
+            audioFile: "animal_jellyfish",
+            clues: ["Den flyder i havet med lange tentakler.", "Den kan stikke med sine tentakler.", "Den ser geléagtig ud."],
+            synonyms: ["gople","goplen","jellyfish"]
+        ),
+        GuessAnimal(
+            displayName: "Lemur",
+            imageName: "animal_lemur",
+            audioFile: "animal_lemur",
+            clues: ["Den har en lang busket hale.", "Den bor på øer som Madagaskar.", "Den er aktiv om dagen og natten."],
+            synonyms: ["lemur","lemuren"]
+        ),
+        GuessAnimal(
+            displayName: "Mandril",
+            imageName: "animal_mandrill",
+            audioFile: "animal_mandrill",
+            clues: ["Han har farverige kinder og næse.", "Den lever i tropiske skove.", "Den er en stor abe."],
+            synonyms: ["mandril","mandrill"]
+        ),
+        GuessAnimal(
+            displayName: "Muldvarp",
+            imageName: "animal_mole",
+            audioFile: "animal_mole",
+            clues: ["Den graver tunneler under jorden.", "Den har små øjne og stærke forpoter.", "Den spiser orme og insekter."],
+            synonyms: ["muldvarp","muldvarpen"]
+        ),
+        GuessAnimal(
+            displayName: "Mungos",
+            imageName: "animal_mongoose",
+            audioFile: "animal_mongoose",
+            clues: ["Den er lille og adræt.", "Den kan jage slanger og insekter.", "Den lever i huller og buske."],
+            synonyms: ["mungos","mungo","mongoose"]
+        ),
+        GuessAnimal(
+            displayName: "Elg",
+            imageName: "animal_moose",
+            audioFile: "animal_moose",
+            clues: ["Den er stor med brede gevirer.", "Den lever i skove i kolde egne.", "Den spiser grene og blade."],
+            synonyms: ["elg","elgen","moose"]
+        ),
+        GuessAnimal(
+            displayName: "Okapi",
+            imageName: "animal_okapi",
+            audioFile: "animal_okapi",
+            clues: ["Den ligner en blanding af giraf og zebra.", "Den har striber på bagbenene.", "Den lever i tætte skove."],
+            synonyms: ["okapi","okapien"]
+        ),
+        GuessAnimal(
+            displayName: "Flyvefisk",
+            imageName: "animal_flying_fish",
+            audioFile: "animal_flying_fish",
+            clues: ["Den kan glide over vandet som en lille flyver.", "Den har vingerlignende finner.", "Den lever i havet og kan springe langt."],
+            synonyms: ["flyvefisk","flyvefisken","flyingfish"]
+        ),
+        GuessAnimal(
+            displayName: "Spækhugger",
+            imageName: "animal_orca",
+            audioFile: "animal_orca",
+            clues: ["Den er en stor sort‑hvid hval.", "Den svømmer i grupper og er meget stærk.", "Den jager fisk og nogle gange sæler."],
+            synonyms: ["spækhugger","orca","killer whale"]
+        ),
+        GuessAnimal(
+            displayName: "Struds",
+            imageName: "animal_ostrich",
+            audioFile: "animal_ostrich",
+            clues: ["Den er en meget stor fugl, men kan ikke flyve.", "Den løber rigtig hurtigt på land.", "Den har lange ben og en lang hals."],
+            synonyms: ["struds","strudsen","ostrich"]
+        ),
+        GuessAnimal(
+            displayName: "Isbjørn",
+            imageName: "animal_polar_bear",
+            audioFile: "animal_polar_bear",
+            clues: ["Den bor i kolde egne med is og sne.", "Den har tyk hvid pels og store poter.", "Den kan svømme og jage sæler."],
+            synonyms: ["isbjørn","isbjørnen","polar bear"]
+        ),
+        GuessAnimal(
+            displayName: "Hvalros",
+            imageName: "animal_walrus",
+            audioFile: "animal_walrus",
+            clues: ["Den har store stødtænder og en kraftig krop.", "Den hviler på isflager og klipper ved kysten.", "Den laver dybe brummelyde og har skæg."],
+            synonyms: ["hvalros","hvalrossen","walrus"]
+        ),
+        GuessAnimal(
+            displayName: "Grib",
+            imageName: "animal_vulture",
+            audioFile: "animal_vulture",
+            clues: ["Den er en stor fugl, der ofte flyver højt.", "Den hjælper naturen ved at spise døde dyr.", "Den har et bart hoved og brede vinger."],
+            synonyms: ["grib","griben","vulture"]
+        ),
+        GuessAnimal(
+            displayName: "Vildsvin",
+            imageName: "animal_wild_boar",
+            audioFile: "animal_wild_boar",
+            clues: ["Den ligner en vild gris med kraftige stødtænder.", "Den lever i skove og graver efter rødder.", "Den kan være hurtig og forsigtig."],
+            synonyms: ["vildsvin","vildsvinet","wild boar"]
+        ),
+        GuessAnimal(
+            displayName: "Jærv",
+            imageName: "animal_wolverine",
+            audioFile: "animal_wolverine",
+            clues: ["Den er lille men meget stærk og modig.", "Den lever i kolde skove og bjerge.", "Den kan trække bytte, der er større end den selv."],
+            synonyms: ["jærv","jærven","wolverine"]
+        ),
+        GuessAnimal(
+            displayName: "Skældyr",
+            imageName: "animal_pangolin",
+            audioFile: "animal_pangolin",
+            clues: ["Den er dækket af hårde skæl som et panserskjold.", "Den ruller sig sammen for at beskytte sig.", "Den spiser myrer og termitter med sin lange tunge."],
+            synonyms: ["skældyr","pangolin","pangolinen"]
+        ),
+        GuessAnimal(
+            displayName: "Isbjørn (reserve)",
+            imageName: "animal_polar_bear_2",
+            audioFile: "animal_polar_bear",
+            clues: ["Den bor på isflager og kan svømme langt.", "Den har tyk pels, der holder den varm.", "Den jager ved isens kant."],
+            synonyms: ["isbjørn","polar bear"]
+        )
+
 ]
 
 private struct GuessMessage: Identifiable {
@@ -178,6 +530,11 @@ private func levenshtein(_ aStr: String, _ bStr: String) -> Int {
     return matrix[n][m]
 }
 
+private func minimumRecognizedCharacters(for word: String) -> Int {
+    let length = max(word.count, 1)
+    return Int(ceil(Double(length) * 0.60))
+}
+
 private func bestMatchedSynonym(candidates: [String], synonyms: [String]) -> String? {
     let normalizedSynonyms = uniqueOrdered(synonyms)
     guard !normalizedSynonyms.isEmpty else { return nil }
@@ -194,13 +551,29 @@ private func bestMatchedSynonym(candidates: [String], synonyms: [String]) -> Str
         }
 
         for check in uniqueOrdered(checks) {
+            guard check.count >= 2 else { continue }
+
             for synonym in normalizedSynonyms {
-                if check == synonym || check.contains(synonym) || synonym.contains(check) {
+                let minimumChars = minimumRecognizedCharacters(for: synonym)
+                let maxDistance = max(1, synonym.count - minimumChars)
+
+                if check == synonym {
                     return synonym
                 }
 
-                let maxDistance = synonym.count <= 4 ? 1 : 2
-                if levenshtein(check, synonym) <= maxDistance {
+                // Phrase may contain full synonym, e.g. "en krabbe"
+                if check.contains(synonym) {
+                    return synonym
+                }
+
+                // Allow partial recognition only when enough of the target word is present.
+                if synonym.contains(check), check.count >= minimumChars {
+                    return synonym
+                }
+
+                // Flexible typo tolerance with 60% minimum recognition.
+                if min(check.count, synonym.count) >= minimumChars,
+                   levenshtein(check, synonym) <= maxDistance {
                     return synonym
                 }
             }
@@ -400,6 +773,7 @@ struct GuessAnimalView: View {
     @State private var resultTitle = ""
     @State private var resultSubtitle = ""
     @State private var lastRoundWasSuccess = false
+    @State private var flowToken = UUID()
 
     @State private var listeningProgress: Double = 0
     @State private var secondsLeft = 0
@@ -449,6 +823,12 @@ struct GuessAnimalView: View {
             .padding(.horizontal, 14)
             .padding(.top, 10)
             .padding(.bottom, 16)
+
+            if showResultOverlay {
+                resultOverlay
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
         .sheet(isPresented: $showMultipleChoice) {
             MultipleChoiceView(animals: animals, correctIndex: currentIndex) { selected in
@@ -463,7 +843,6 @@ struct GuessAnimalView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
-        .overlay(resultOverlay)
         .onAppear {
             if !hasStarted {
                 hasStarted = true
@@ -498,13 +877,6 @@ struct GuessAnimalView: View {
                     .clipShape(Circle())
             }
 
-            Spacer()
-
-            Text("Gæt et dyr")
-                .font(.headline.weight(.semibold))
-
-            Spacer()
-
             Button(action: repeatCurrentClue) {
                 Image(systemName: "speaker.wave.2.fill")
                     .font(.headline)
@@ -513,6 +885,12 @@ struct GuessAnimalView: View {
                     .background(Color.white.opacity(0.72))
                     .clipShape(Circle())
             }
+
+            Spacer()
+        }
+        .overlay {
+            Text("Gæt et dyr")
+                .font(.headline.weight(.semibold))
         }
     }
 
@@ -683,7 +1061,8 @@ struct GuessAnimalView: View {
 
     private var scoreBadge: some View {
         HStack(spacing: 8) {
-            Image(systemName: "rosette")
+            Image(systemName: "star.fill")
+                .foregroundColor(.yellow)
             Text("Score: \(score)")
                 .font(.subheadline.bold())
         }
@@ -694,53 +1073,58 @@ struct GuessAnimalView: View {
     }
 
     private var resultOverlay: some View {
-        Group {
-            if showResultOverlay {
-                ZStack {
-                    Color.black.opacity(0.34).ignoresSafeArea()
+        ZStack {
+            Color.black.opacity(0.36)
+                .ignoresSafeArea()
 
-                    VStack(spacing: 12) {
-                        Text(resultTitle)
-                            .font(.title2.bold())
-                            .foregroundColor(.white)
+            VStack(spacing: 14) {
+                Image(currentAnimal.imageName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 170, height: 170)
+                    .background(Color.black.opacity(0.05))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
 
-                        Text(resultSubtitle)
-                            .font(.headline)
-                            .foregroundColor(.white.opacity(0.95))
-                            .multilineTextAlignment(.center)
+                Text(resultTitle)
+                    .font(.title2.bold())
+                    .foregroundColor(.black)
 
-                        HStack(spacing: 10) {
-                            Button("Hør lyd") {
-                                if lastRoundWasSuccess {
-                                    speakSuccessSequence()
-                                } else {
-                                    playAnimalSound(named: currentAnimal.audioFile)
-                                }
-                            }
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 14)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                Text(resultSubtitle)
+                    .font(.headline)
+                    .foregroundColor(.black)
+                    .multilineTextAlignment(.center)
 
-                            Button(startImmediately ? "Afslut" : "Næste dyr") {
-                                showResultOverlay = false
-                                if startImmediately {
-                                    teardown()
-                                    onExit()
-                                } else {
-                                    nextRound()
-                                }
-                            }
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 14)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
+                Button(lastRoundWasSuccess ? "Prøv igen" : "Næste dyr") {
+                    showResultOverlay = false
+                    if startImmediately {
+                        teardown()
+                        onExit()
+                    } else {
+                        nextRound()
                     }
-                    .padding(20)
                 }
+                .font(.headline.bold())
+                .frame(minWidth: 170)
+                .padding(.vertical, 12)
+                .padding(.horizontal, 24)
+                .background(Color.white)
+                .foregroundColor(.green)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.green.opacity(0.65), lineWidth: 1.5)
+                )
+                .shadow(color: .black.opacity(0.14), radius: 5, y: 2)
             }
+            .padding(.vertical, 24)
+            .padding(.horizontal, 28)
+            .frame(maxWidth: 430)
+            .background(Color.white.opacity(0.95))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .shadow(color: .black.opacity(0.28), radius: 18, y: 6)
+            .padding(.horizontal, 24)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Game flow
@@ -748,6 +1132,8 @@ struct GuessAnimalView: View {
     private func startRound(showIntro: Bool = false) {
         recognizer.stopListening()
         stopListeningFeedback()
+        stopAudioPlayback()
+        invalidateFlowToken()
 
         clueIndex = 0
         attemptsForCurrentClue = 0
@@ -768,8 +1154,11 @@ struct GuessAnimalView: View {
         let clue = currentAnimal.clues[clueIndex]
         appendMessage(role: .host, text: "Ledetråd \(clueIndex + 1): \(clue)")
 
+        let token = flowToken
         speakClue(at: clueIndex) {
+            guard token == flowToken else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                guard token == flowToken else { return }
                 openListeningWindow()
             }
         }
@@ -787,8 +1176,10 @@ struct GuessAnimalView: View {
 
         appendMessage(role: .system, text: "Sig dit gæt nu.")
 
+        let token = flowToken
         let context = currentAnimal.synonyms + [currentAnimal.displayName]
         recognizer.startListening(window: listeningWindow, contextualWords: context) { transcript, candidates in
+            guard token == flowToken else { return }
             handleRecognitionResult(transcript: transcript, candidates: candidates)
         }
     }
@@ -818,7 +1209,9 @@ struct GuessAnimalView: View {
             attemptsForCurrentClue += 1
             if attemptsForCurrentClue < 2 {
                 appendMessage(role: .system, text: "Jeg hørte ikke noget. Prøv igen med samme ledetråd.")
+                let token = flowToken
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    guard token == flowToken else { return }
                     openListeningWindow()
                 }
                 return
@@ -829,7 +1222,9 @@ struct GuessAnimalView: View {
         if clueIndex < 2 {
             clueIndex += 1
             appendMessage(role: .host, text: "Ikke helt. Her kommer næste ledetråd.")
+            let token = flowToken
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                guard token == flowToken else { return }
                 runClueStep()
             }
         } else {
@@ -849,8 +1244,10 @@ struct GuessAnimalView: View {
     }
 
     private func finishRound(success: Bool) {
+        invalidateFlowToken()
         recognizer.stopListening()
         stopListeningFeedback()
+        stopAudioPlayback()
 
         if success {
             lastRoundWasSuccess = true
@@ -865,7 +1262,7 @@ struct GuessAnimalView: View {
             resultTitle = "Godt forsøgt"
             resultSubtitle = "Det rigtige svar var \(currentAnimal.displayName.lowercased())."
             appendMessage(role: .host, text: "Det rigtige svar var \(currentAnimal.displayName.lowercased()).")
-            playAnimalSound(named: currentAnimal.audioFile)
+            speakWrongSequence()
         }
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
@@ -887,6 +1284,7 @@ struct GuessAnimalView: View {
         guard !showResultOverlay else { return }
         recognizer.stopListening()
         stopListeningFeedback()
+        stopAudioPlayback()
         appendMessage(role: .system, text: "Vi gentager ledetråden.")
         runClueStep()
     }
@@ -899,6 +1297,7 @@ struct GuessAnimalView: View {
         }
         recognizer.stopListening()
         stopListeningFeedback()
+        stopAudioPlayback()
         openListeningWindow()
     }
 
@@ -967,6 +1366,7 @@ struct GuessAnimalView: View {
         let clueFile = clueAudioFileName(for: currentAnimal, clueIndex: clueIndex)
 
         AudioVoiceManager.shared.debugLogging = false
+        AudioVoiceManager.shared.stopAll()
         AudioVoiceManager.shared.speakSequencePerSegment(
             aiFiles: [clueFile],
             segmentFallbackTexts: [clueText],
@@ -976,6 +1376,7 @@ struct GuessAnimalView: View {
 
     private func speakSuccessSequence() {
         AudioVoiceManager.shared.debugLogging = false
+        AudioVoiceManager.shared.stopAll()
         AudioVoiceManager.shared.speakSequencePerSegment(
             aiFiles: ["Generic_Flot", currentAnimal.audioFile],
             segmentFallbackTexts: ["Flot", currentAnimal.displayName],
@@ -983,9 +1384,20 @@ struct GuessAnimalView: View {
         )
     }
 
+    private func speakWrongSequence() {
+        AudioVoiceManager.shared.debugLogging = false
+        AudioVoiceManager.shared.stopAll()
+        AudioVoiceManager.shared.speakSequencePerSegment(
+            aiFiles: ["animal_guess_wrong", currentAnimal.audioFile],
+            segmentFallbackTexts: ["Det rigtige svar var", currentAnimal.displayName],
+            completion: nil
+        )
+    }
+
     private func playAnimalSound(named fileName: String) {
         guard let url = Bundle.main.url(forResource: fileName, withExtension: "mp3") else { return }
         do {
+            AudioVoiceManager.shared.stopAll()
             try AVAudioSession.sharedInstance().setCategory(.playback, options: [.duckOthers])
             try AVAudioSession.sharedInstance().setActive(true)
             player = try AVAudioPlayer(contentsOf: url)
@@ -997,10 +1409,22 @@ struct GuessAnimalView: View {
     }
 
     private func teardown() {
+        invalidateFlowToken()
         countdownTimer?.invalidate()
         countdownTimer = nil
         recognizer.stopListening()
+        stopListeningFeedback()
+        stopAudioPlayback()
+    }
+
+    private func invalidateFlowToken() {
+        flowToken = UUID()
+    }
+
+    private func stopAudioPlayback() {
+        AudioVoiceManager.shared.stopAll()
         player?.stop()
+        player = nil
     }
 }
 
