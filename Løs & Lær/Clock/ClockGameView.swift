@@ -241,6 +241,7 @@ struct ClockGameView: View {
     @State private var showErrorFlash: Bool = false
 
     @StateObject private var speechManager = SpeechManager()
+    private var isPhone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
 
     var body: some View {
         GeometryReader { geo in
@@ -248,50 +249,10 @@ struct ClockGameView: View {
                 Color.white.ignoresSafeArea()
 
                 if gameStarted {
-                    VStack {
-                        topBar
-                            .padding(.top, 20)
-                            .padding(.horizontal, 16)
-
-                        Spacer()
-
-                        // Instruction text
-                        Text("Find uret hvor klokken er")
-                            .font(.title2.bold())
-                            .foregroundColor(.black)
-
-                        Text(spokenTimeText(hour: currentQuestion.target.hour, minute: currentQuestion.target.minute))
-                            .font(.title3)
-                            .foregroundColor(.black.opacity(0.8))
-                            .padding(.bottom, 8)
-
-                        // Options
-                        HStack(spacing: 24) {
-                            ForEach(currentQuestion.options) { option in
-                                VStack(spacing: 8) {
-                                    Button(action: {
-                                        optionTapped(option)
-                                    }) {
-                                        AnalogClockView(hour: option.hour, minute: option.minute, size: 120)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 12)
-                                                    .stroke(Color.clear, lineWidth: 3)
-                                            )
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-
-                                    Text(option.digitalLabel)
-                                        .font(.subheadline.monospacedDigit())
-                                        .foregroundColor(.black)
-                                }
-                            }
-                        }
-                        .padding(.top, 18)
-
-                        Spacer()
-
-                        scoreCounter
-                            .padding(.bottom, 20)
+                    if isPhone {
+                        phoneGameScreen(in: geo)
+                    } else {
+                        ipadGameScreen
                     }
                 } else {
                     startScreen
@@ -316,6 +277,99 @@ struct ClockGameView: View {
                 }
             }
         }
+    }
+
+    private var ipadGameScreen: some View {
+        VStack {
+            topBar
+                .padding(.top, 20)
+                .padding(.horizontal, 16)
+
+            Spacer()
+
+            instructionBlock(titleFont: .title2.bold(), subtitleFont: .title3)
+
+            optionsRow(clockSize: 120, spacing: 24, labelFont: .subheadline.monospacedDigit())
+                .padding(.top, 18)
+
+            Spacer()
+
+            scoreCounter
+                .padding(.bottom, 20)
+        }
+    }
+
+    private func phoneGameScreen(in geo: GeometryProxy) -> some View {
+        let size = geo.size
+        let isLandscape = size.width > size.height
+        let horizontalPadding: CGFloat = isLandscape ? 10 : 14
+        let optionSpacing: CGFloat = isLandscape ? 10 : 12
+        let availableWidth = size.width - (horizontalPadding * 2) - (optionSpacing * 2)
+        let byWidth = availableWidth / 3
+        let byHeight = isLandscape ? size.height * 0.36 : size.height * 0.24
+        let clockSize = max(64, min(120, min(byWidth, byHeight)))
+
+        return VStack(spacing: isLandscape ? 8 : 14) {
+            phoneTopBar
+                .padding(.top, isLandscape ? 6 : 12)
+                .padding(.horizontal, horizontalPadding)
+
+            instructionBlock(
+                titleFont: isLandscape ? .headline.bold() : .title3.bold(),
+                subtitleFont: isLandscape ? .subheadline : .body
+            )
+
+            optionsRow(
+                clockSize: clockSize,
+                spacing: optionSpacing,
+                labelFont: isLandscape ? .caption.monospacedDigit() : .footnote.monospacedDigit()
+            )
+            .padding(.top, isLandscape ? 4 : 8)
+
+            Spacer(minLength: isLandscape ? 4 : 10)
+
+            scoreCounter
+                .padding(.bottom, isLandscape ? 8 : 14)
+        }
+        .safeAreaPadding(.bottom, isLandscape ? 4 : 8)
+    }
+
+    private func instructionBlock(titleFont: Font, subtitleFont: Font) -> some View {
+        VStack(spacing: 4) {
+            Text("Find uret hvor klokken er")
+                .font(titleFont)
+                .foregroundColor(.black)
+
+            Text(spokenTimeText(hour: currentQuestion.target.hour, minute: currentQuestion.target.minute))
+                .font(subtitleFont)
+                .foregroundColor(.black.opacity(0.8))
+        }
+        .multilineTextAlignment(.center)
+    }
+
+    private func optionsRow(clockSize: CGFloat, spacing: CGFloat, labelFont: Font) -> some View {
+        HStack(spacing: spacing) {
+            ForEach(currentQuestion.options) { option in
+                VStack(spacing: 6) {
+                    Button(action: {
+                        optionTapped(option)
+                    }) {
+                        AnalogClockView(hour: option.hour, minute: option.minute, size: clockSize)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.clear, lineWidth: 3)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    Text(option.digitalLabel)
+                        .font(labelFont)
+                        .foregroundColor(.black)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 6)
     }
 
     // MARK: - Top bar
@@ -360,44 +414,86 @@ struct ClockGameView: View {
         .padding(.horizontal, 8)
     }
 
-    // MARK: - Start screen
-    private var startScreen: some View {
-        VStack(spacing: 24) {
-            Spacer(minLength: 80)
+    private var phoneTopBar: some View {
+        HStack(spacing: 10) {
+            Button(action: { onBackToHub() }) {
+                Text("← Tilbage")
+                    .font(.subheadline.bold())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.black.opacity(0.06))
+                    .cornerRadius(10)
+            }
 
-            Text("⏰")
-                .font(.system(size: 120))
+            Button(action: { speakQuestion() }) {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .padding(9)
+                    .background(Color.black.opacity(0.03))
+                    .cornerRadius(10)
+            }
 
-            Text("Hvad er klokken?")
-                .font(.largeTitle.bold())
-                .foregroundColor(.black)
-
-            Text("Lyt og vælg det ur, der viser den rigtige tid.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.black)
-                .padding()
-                .background(Color.black.opacity(0.05))
-                .cornerRadius(12)
-                .padding(.horizontal, 24)
-
-            Button(action: {
-                gameStarted = true
-                currentQuestion = ClockQuestionGenerator.randomQuestion()
-                speakQuestion()
-            }) {
-                Text("Spil")
-                    .font(.title2.bold())
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 40)
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(16)
+            Button(action: { loadNextQuestion() }) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 16, weight: .semibold))
+                    .padding(9)
+                    .background(Color.black.opacity(0.03))
+                    .cornerRadius(10)
             }
 
             Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white.ignoresSafeArea())
+    }
+
+    // MARK: - Start screen
+    private var startScreen: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            let isLandscape = size.width > size.height
+            let compactPhoneLandscape = isPhone && isLandscape
+
+            ScrollView(.vertical) {
+                VStack(spacing: compactPhoneLandscape ? 12 : 24) {
+                    Spacer(minLength: compactPhoneLandscape ? 8 : 80)
+
+                    Text("⏰")
+                        .font(.system(size: compactPhoneLandscape ? 84 : 120))
+
+                    Text("Hvad er klokken?")
+                        .font(compactPhoneLandscape ? .system(size: 40, weight: .bold) : .largeTitle.bold())
+                        .foregroundColor(.black)
+
+                    Text("Lyt og vælg det ur, der viser den rigtige tid.")
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.black)
+                        .font(compactPhoneLandscape ? .title3 : .body)
+                        .padding()
+                        .frame(maxWidth: compactPhoneLandscape ? min(size.width * 0.78, 620) : nil)
+                        .background(Color.black.opacity(0.05))
+                        .cornerRadius(12)
+                        .padding(.horizontal, compactPhoneLandscape ? 12 : 24)
+
+                    Button(action: {
+                        gameStarted = true
+                        currentQuestion = ClockQuestionGenerator.randomQuestion()
+                        speakQuestion()
+                    }) {
+                        Text("Spil")
+                            .font(.title2.bold())
+                            .padding(.vertical, compactPhoneLandscape ? 10 : 12)
+                            .padding(.horizontal, compactPhoneLandscape ? 44 : 40)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(16)
+                    }
+
+                    Spacer(minLength: compactPhoneLandscape ? 8 : 20)
+                }
+                .frame(maxWidth: .infinity, minHeight: size.height)
+                .safeAreaPadding(.horizontal, compactPhoneLandscape ? 12 : 0)
+            }
+            .background(Color.white.ignoresSafeArea())
+        }
     }
 
     // MARK: - Score counter
@@ -685,4 +781,3 @@ struct ClockGameView_Previews: PreviewProvider {
         ClockGameView(difficulty: .easy, startImmediately: true, onExit: {}, onBackToHub: {})
     }
 }
-

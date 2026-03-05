@@ -11,94 +11,135 @@ struct HomeView: View {
     @EnvironmentObject private var trialManager: TrialManager
     @State private var showParentInfo = false
 
-    let columns = [
-        GridItem(.flexible()),
-        GridItem(.flexible()),
-        GridItem(.flexible())
-    ]
-
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer().frame(height: 40)
+        GeometryReader { geo in
+            let layout = homeLayout(for: geo.size.width)
 
-            Text("Vælg et spil")
-                .font(.largeTitle.bold())
-                .foregroundColor(.black)
+            ScrollView(.vertical) {
+                VStack(spacing: 18) {
+                    headerRow
 
-            if trialManager.shouldShowFivePlaysWarning() {
-                Text("⭐ 5 spil tilbage i gratisversionen")
-                    .font(.headline.weight(.semibold))
-                    .foregroundColor(.orange)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.85))
-                    .clipShape(Capsule())
-            }
-
-            LazyVGrid(columns: columns, spacing: 16) {
-                IconTileButton(iconName: "icon_labyrinth_abc") {
-                    onSelectGame(.labyrinthLetters)
-                }
-
-                IconTileButton(iconName: "icon_labyrinth_math") {
-                    onSelectGame(.labyrinthMath)
-                }
-
-                IconTileButton(iconName: "icon_labyrinth_word") {
-                    onSelectGame(.labyrinthWords)
-                }
-
-                IconTileButton(iconName: "icon_clock") {
-                    onSelectGame(.clock)
-                }
-
-                IconTileButton(iconName: "icon_animals") {
-                    onSelectGame(.animals)
-                }
-
-                IconTileButton(iconName: "icon_tictactoe") {
-                    onSelectGame(.ticTacToe)
-                }
-
-                IconTileButton(iconName: "icon_MemoryMatchView_animal") {
-                    onSelectGame(.memoryMatch)
-                }
-
-                IconTileButton(iconName: "icon_all_games") {
-                    if enabledGames.count > 1 {
-                        onSelectGame(.allGames)
-                    } else {
-                        onNotReady(.allGames)
+                    if trialManager.shouldShowFivePlaysWarning() {
+                        Text("⭐ 5 spil tilbage i gratisversionen")
+                            .font(.headline.weight(.semibold))
+                            .foregroundColor(.orange)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.85))
+                            .clipShape(Capsule())
                     }
+
+                    LazyVGrid(columns: layout.columns, spacing: layout.gridSpacing) {
+                        IconTileButton(iconName: "icon_labyrinth_abc", tileSize: layout.tileSize) {
+                            onSelectGame(.labyrinthLetters)
+                        }
+
+                        IconTileButton(iconName: "icon_labyrinth_math", tileSize: layout.tileSize) {
+                            onSelectGame(.labyrinthMath)
+                        }
+
+                        IconTileButton(iconName: "icon_labyrinth_word", tileSize: layout.tileSize) {
+                            onSelectGame(.labyrinthWords)
+                        }
+
+                        IconTileButton(iconName: "icon_clock", tileSize: layout.tileSize) {
+                            onSelectGame(.clock)
+                        }
+
+                        IconTileButton(iconName: "icon_animals", tileSize: layout.tileSize) {
+                            onSelectGame(.animals)
+                        }
+
+                        IconTileButton(iconName: "icon_tictactoe", tileSize: layout.tileSize) {
+                            onSelectGame(.ticTacToe)
+                        }
+
+                        IconTileButton(iconName: "icon_MemoryMatchView_animal", tileSize: layout.tileSize) {
+                            onSelectGame(.memoryMatch)
+                        }
+
+                        IconTileButton(iconName: "icon_all_games", tileSize: layout.tileSize) {
+                            if enabledGames.count > 1 {
+                                onSelectGame(.allGames)
+                            } else {
+                                onNotReady(.allGames)
+                            }
+                        }
+
+                        IconTileButton(iconName: "icon_guess_animal", tileSize: layout.tileSize) {
+                            onSelectGame(.guessAnimal)
+                        }
+                    }
+
+                    DifficultyPicker(difficulty: $difficulty)
+                        .padding(.top, 6)
+
+                    #if DEBUG
+                    debugPanel
+                    #endif
                 }
-
-                IconTileButton(iconName: "icon_guess_animal") {
-                    onSelectGame(.guessAnimal)
-                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, layout.horizontalPadding)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 20)
-
-            DifficultyPicker(difficulty: $difficulty)
-                .padding(.top, 10)
-
-            #if DEBUG
-            debugPanel
-            #endif
-
-            Spacer()
-        }
-        .overlay(alignment: .topTrailing) {
-            Button(action: { showParentInfo = true }) {
-                Image(systemName: "info.circle")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(.gray)
-                    .padding()
-            }
-            .offset(x: -20, y: 20)
+            .scrollIndicators(.visible)
+            .safeAreaPadding(.top, 6)
         }
         .fullScreenCover(isPresented: $showParentInfo) {
             ParentInfoView(showParentInfo: $showParentInfo)
         }
+    }
+
+    private var headerRow: some View {
+        ZStack(alignment: .trailing) {
+            Text("Vælg et spil")
+                .font(.largeTitle.bold())
+                .foregroundColor(.black)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            Button(action: { showParentInfo = true }) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.gray)
+                    .padding(6)
+            }
+        }
+    }
+
+    private struct HomeLayout {
+        let columns: [GridItem]
+        let tileSize: CGFloat
+        let gridSpacing: CGFloat
+        let horizontalPadding: CGFloat
+    }
+
+    private func homeLayout(for screenWidth: CGFloat) -> HomeLayout {
+        let horizontalPadding: CGFloat
+        let columnCount: Int
+        let spacing: CGFloat
+
+        if screenWidth < 430 {
+            horizontalPadding = 12
+            columnCount = 2
+            spacing = 10
+        } else if screenWidth < 900 {
+            horizontalPadding = 16
+            columnCount = 3
+            spacing = 12
+        } else {
+            horizontalPadding = 20
+            columnCount = 3
+            spacing = 16
+        }
+
+        let available = screenWidth - (horizontalPadding * 2) - (CGFloat(columnCount - 1) * spacing)
+        let rawTile = floor(available / CGFloat(columnCount))
+        let maxTile: CGFloat = screenWidth < 430 ? 170 : (screenWidth < 900 ? 210 : 190)
+        let tileSize = max(120, min(maxTile, rawTile))
+
+        let columns = Array(repeating: GridItem(.flexible(), spacing: spacing), count: columnCount)
+        return HomeLayout(columns: columns, tileSize: tileSize, gridSpacing: spacing, horizontalPadding: horizontalPadding)
     }
 
     #if DEBUG
@@ -114,29 +155,55 @@ struct HomeView: View {
                 .font(.footnote.bold())
                 .foregroundColor(.black.opacity(0.75))
 
-            HStack(spacing: 12) {
-                Text("Tilbage: \(trialManager.freePlaysRemaining)")
-                Text("Spillet: \(debugPlaysUsed)")
-                Text("Unlocket: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
+            ViewThatFits {
+                HStack(spacing: 12) {
+                    Text("Tilbage: \(trialManager.freePlaysRemaining)")
+                    Text("Spillet: \(debugPlaysUsed)")
+                    Text("Unlocket: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
+                }
+                VStack(spacing: 4) {
+                    Text("Tilbage: \(trialManager.freePlaysRemaining)")
+                    Text("Spillet: \(debugPlaysUsed)")
+                    Text("Unlocket: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
+                }
             }
             .font(.caption.weight(.semibold))
             .foregroundColor(.black.opacity(0.8))
 
-            HStack(spacing: 8) {
-                Button("Reset trial") {
-                    trialManager.resetTrial()
-                }
-                .buttonStyle(.bordered)
+            ViewThatFits {
+                HStack(spacing: 8) {
+                    Button("Reset trial") {
+                        trialManager.resetTrial()
+                    }
+                    .buttonStyle(.bordered)
 
-                Button("Simulate purchase") {
-                    trialManager.simulatePurchase()
-                }
-                .buttonStyle(.borderedProminent)
+                    Button("Simulate purchase") {
+                        trialManager.simulatePurchase()
+                    }
+                    .buttonStyle(.borderedProminent)
 
-                Button("Print status") {
-                    trialManager.printCurrentTrialStatus()
+                    Button("Print status") {
+                        trialManager.printCurrentTrialStatus()
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
+
+                VStack(spacing: 6) {
+                    Button("Reset trial") {
+                        trialManager.resetTrial()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Simulate purchase") {
+                        trialManager.simulatePurchase()
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Print status") {
+                        trialManager.printCurrentTrialStatus()
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
         }
         .padding(10)
@@ -149,6 +216,7 @@ struct HomeView: View {
 
 struct IconTileButton: View {
     let iconName: String
+    let tileSize: CGFloat
     let action: () -> Void
 
     var body: some View {
@@ -156,8 +224,8 @@ struct IconTileButton: View {
             Image(iconName)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 170, height: 170)
-                .padding(8)
+                .frame(width: tileSize, height: tileSize)
+                .padding(4)
         }
     }
 }
@@ -176,7 +244,8 @@ struct DifficultyPicker: View {
                 Text("Svær").tag(Difficulty.hard)
             }
             .pickerStyle(.segmented)
-            .frame(width: 260)
+            .frame(maxWidth: 360)
         }
+        .frame(maxWidth: .infinity)
     }
 }

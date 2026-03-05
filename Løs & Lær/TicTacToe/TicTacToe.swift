@@ -58,6 +58,7 @@ struct TicTacToeView: View {
 
 
     @StateObject private var speechManager = SpeechManager()
+    private var isPhone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
 
     // MARK: - Layout constants
     private let gridSpacing: CGFloat = 12
@@ -69,45 +70,10 @@ struct TicTacToeView: View {
                 Color.white.ignoresSafeArea()
 
                 if gameStarted {
-                    VStack {
-                        topBar
-                            .padding(.top, 18)
-                            .padding(.horizontal, 16)
-
-                        Spacer(minLength: 8)
-
-                        HStack(spacing: 8) {
-                            if currentPlayer == .lion {
-                                Image("animal_lion")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 28, height: 28)
-                            } else if currentPlayer == .elephant {
-                                Image("animal_elephant")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 28, height: 28)
-                            }
-
-                            Text(turnText)
-                                .font(.title2.bold())
-                                .foregroundColor(.black)
-                        }
-                        .padding(.vertical, 6)
-
-
-                        boardView
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.horizontal, 24)
-
-                        Spacer(minLength: 8)
-
-                        HStack {
-                            Spacer()
-                            scoreLegend
-                            Spacer()
-                        }
-                        .padding(.bottom, 20)
+                    if isPhone {
+                        phoneGameScreen(geo: geo)
+                    } else {
+                        ipadGameScreen
                     }
                 } else {
                     startScreen
@@ -162,38 +128,164 @@ struct TicTacToeView: View {
         .padding(.horizontal, 8)
     }
 
+    private var turnIndicator: some View {
+        HStack(spacing: 8) {
+            if currentPlayer == .lion {
+                Image("animal_lion")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+            } else if currentPlayer == .elephant {
+                Image("animal_elephant")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+            }
+
+            Text(turnText)
+                .font(.title2.bold())
+                .foregroundColor(.black)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var ipadGameScreen: some View {
+        VStack {
+            topBar
+                .padding(.top, 18)
+                .padding(.horizontal, 16)
+
+            Spacer(minLength: 8)
+
+            turnIndicator
+
+            boardView(cellSize: cellSize, spacing: gridSpacing, boardPadding: 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 24)
+
+            Spacer(minLength: 8)
+
+            HStack {
+                Spacer()
+                scoreLegend
+                Spacer()
+            }
+            .padding(.bottom, 20)
+        }
+    }
+
+    private func phoneGameScreen(geo: GeometryProxy) -> some View {
+        let size = geo.size
+        let isLandscape = size.width > size.height
+        let horizontalPad: CGFloat = isLandscape ? 12 : 16
+        let boardSpacing: CGFloat = isLandscape ? 8 : 10
+        let boardPadding: CGFloat = isLandscape ? 8 : 12
+
+        let availableHeightForBoard = max(180, size.height - (isLandscape ? 180 : 260))
+        let maxBoardWidth = isLandscape ? size.width * 0.62 : size.width - (horizontalPad * 2)
+        let boardSide = min(maxBoardWidth, availableHeightForBoard)
+        let dynamicCellSize = max(56, min(120, floor((boardSide - boardPadding * 2 - boardSpacing * 2) / 3)))
+
+        return VStack(spacing: isLandscape ? 6 : 10) {
+            topBar
+                .padding(.top, isLandscape ? 6 : 12)
+                .padding(.horizontal, horizontalPad)
+
+            turnIndicator
+                .padding(.top, isLandscape ? 0 : 4)
+
+            boardView(cellSize: dynamicCellSize, spacing: boardSpacing, boardPadding: boardPadding)
+                .frame(width: dynamicCellSize * 3 + boardSpacing * 2 + boardPadding * 2)
+                .frame(maxWidth: .infinity)
+
+            scoreLegend
+                .padding(.horizontal, horizontalPad)
+                .padding(.bottom, isLandscape ? 8 : 12)
+        }
+        .safeAreaPadding(.bottom, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
     // MARK: - Start Screen
     private var startScreen: some View {
-        VStack(spacing: 20) {
-            Spacer(minLength: 60)
+        GeometryReader { geo in
+            let size = geo.size
+            let isLandscape = size.width > size.height
+            let compactPhoneLandscape = isPhone && isLandscape
 
-            Text("Kryds og Bolle")
-                .font(.largeTitle.bold())
-                .foregroundColor(.black)
+            ScrollView(.vertical) {
+                Group {
+                    if compactPhoneLandscape {
+                        HStack(alignment: .center, spacing: 20) {
+                            VStack(spacing: 10) {
+                                Text("Kryds og Bolle")
+                                    .font(.system(size: 40, weight: .bold))
+                                    .foregroundColor(.black)
 
-            Text("Vælg 1 eller 2 spillere og sværhedsgrad. Løve vs Elefant.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.black)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 6)
-                .background(Color.black.opacity(0.03))
-                .cornerRadius(12)
+                                Text("Vælg 1 eller 2 spillere og sværhedsgrad. Løve vs Elefant.")
+                                    .multilineTextAlignment(.center)
+                                    .foregroundColor(.black)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(Color.black.opacity(0.03))
+                                    .cornerRadius(12)
+                            }
+                            .frame(maxWidth: .infinity)
 
-            HStack(spacing: 16) {
-                playerChoiceBox(count: 1, selected: modeSinglePlayer)
+                            startControlsColumn(compact: true)
+                                .frame(maxWidth: min(size.width * 0.44, 360))
+                        }
+                        .padding(.horizontal, 12)
+                    } else {
+                        VStack(spacing: 20) {
+                            Spacer(minLength: 40)
+
+                            Text("Kryds og Bolle")
+                                .font(.largeTitle.bold())
+                                .foregroundColor(.black)
+
+                            Text("Vælg 1 eller 2 spillere og sværhedsgrad. Løve vs Elefant.")
+                                .multilineTextAlignment(.center)
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 28)
+                                .padding(.vertical, 6)
+                                .background(Color.black.opacity(0.03))
+                                .cornerRadius(12)
+
+                            startControlsColumn(compact: false)
+
+                            Spacer(minLength: 20)
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: size.height)
+            }
+            .background(Color.white.ignoresSafeArea())
+        }
+        .onAppear {
+            // default selection
+            modeSinglePlayer = true
+            aiDifficulty = difficulty
+        }
+    }
+
+    private func startControlsColumn(compact: Bool) -> some View {
+        VStack(spacing: compact ? 10 : 16) {
+            HStack(spacing: compact ? 10 : 16) {
+                playerChoiceBox(count: 1, selected: modeSinglePlayer, compact: compact)
                     .onTapGesture { modeSinglePlayer = true }
 
-                playerChoiceBox(count: 2, selected: !modeSinglePlayer)
+                playerChoiceBox(count: 2, selected: !modeSinglePlayer, compact: compact)
                     .onTapGesture { modeSinglePlayer = false }
             }
-            .padding(.horizontal, 24)
 
             HStack(spacing: 12) {
                 Button(action: { aiDifficulty = .easy }) {
                     Text("Let")
                         .font(.headline)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 22)
+                        .padding(.vertical, compact ? 8 : 10)
+                        .padding(.horizontal, compact ? 16 : 22)
                         .background(aiDifficulty == .easy ? Color.green : Color.black.opacity(0.06))
                         .foregroundColor(aiDifficulty == .easy ? .white : .black)
                         .cornerRadius(12)
@@ -202,8 +294,8 @@ struct TicTacToeView: View {
                 Button(action: { aiDifficulty = .hard }) {
                     Text("Svær")
                         .font(.headline)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 22)
+                        .padding(.vertical, compact ? 8 : 10)
+                        .padding(.horizontal, compact ? 16 : 22)
                         .background(aiDifficulty == .hard ? Color.green : Color.black.opacity(0.06))
                         .foregroundColor(aiDifficulty == .hard ? .white : .black)
                         .cornerRadius(12)
@@ -212,66 +304,56 @@ struct TicTacToeView: View {
 
             Button(action: {
                 gameStarted = true
-                // ensure singleplayer default if AllGames later forces it
                 startNewRound()
             }) {
                 Text("Spil")
                     .font(.title2.bold())
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 40)
+                    .padding(.vertical, compact ? 10 : 12)
+                    .padding(.horizontal, compact ? 34 : 40)
                     .background(Color.green)
                     .foregroundColor(.white)
                     .cornerRadius(16)
             }
-            .padding(.top, 12)
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white.ignoresSafeArea())
-        .onAppear {
-            // default selection
-            modeSinglePlayer = true
-            aiDifficulty = difficulty
+            .padding(.top, compact ? 4 : 8)
         }
     }
 
-    private func playerChoiceBox(count: Int, selected: Bool) -> some View {
+    private func playerChoiceBox(count: Int, selected: Bool, compact: Bool = false) -> some View {
         VStack {
             Image(systemName: count == 1 ? "person.fill" : "person.2.fill")
-                .font(.system(size: 44))
+                .font(.system(size: compact ? 30 : 44))
                 .foregroundColor(selected ? .white : .black)
-                .padding(18)
+                .padding(compact ? 12 : 18)
                 .background(selected ? Color.green : Color.black.opacity(0.06))
                 .cornerRadius(12)
 
             Text(count == 1 ? "1 spiller" : "2 spillere")
-                .font(.headline)
+                .font(compact ? .subheadline.bold() : .headline)
                 .foregroundColor(.black)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+        .padding(.vertical, compact ? 4 : 8)
         .background(Color.white)
         .cornerRadius(12)
         .shadow(radius: selected ? 6 : 0)
     }
 
     // MARK: - Board View
-    private var boardView: some View {
-        VStack(spacing: gridSpacing) {
+    private func boardView(cellSize: CGFloat, spacing: CGFloat, boardPadding: CGFloat) -> some View {
+        VStack(spacing: spacing) {
             ForEach(0..<3) { row in
-                HStack(spacing: gridSpacing) {
+                HStack(spacing: spacing) {
                     ForEach(0..<3) { col in
                         let idx = row * 3 + col
-                        cellView(index: idx)
+                        cellView(index: idx, cellSize: cellSize)
                     }
                 }
             }
         }
-        .padding(12)
+        .padding(boardPadding)
     }
 
-    private func cellView(index: Int) -> some View {
+    private func cellView(index: Int, cellSize: CGFloat) -> some View {
         Button(action: { cellTapped(index: index) }) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
@@ -313,51 +395,46 @@ struct TicTacToeView: View {
 
     // MARK: - Score Legend (placeholder)
     private var scoreLegend: some View {
-        HStack(spacing: 18) {
-            HStack(spacing: 8) {
-                Image("animal_lion")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 36, height: 36)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Løve")
-                        .font(.subheadline.bold())
-                    Text("\(startImmediately ? session.allGameScore : lionScore)")
-                        .font(.headline)
-                }
+        ViewThatFits {
+            HStack(spacing: 18) {
+                scoreItem(icon: Image("animal_lion"), title: "Løve", value: "\(startImmediately ? session.allGameScore : lionScore)")
+                scoreItem(icon: Image("animal_elephant"), title: "Elefant", value: "\(elephantScore)")
+                scoreItem(icon: Image(systemName: "hand.raised.fill"), title: "Uafgjort", value: "\(drawCount)", isSystem: true)
             }
 
-            Spacer(minLength: 12)
-
-            HStack(spacing: 8) {
-                Image("animal_elephant")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 36, height: 36)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Elefant")
-                        .font(.subheadline.bold())
-                    Text("\(elephantScore)")
-                        .font(.headline)
+            VStack(spacing: 8) {
+                HStack(spacing: 12) {
+                    scoreItem(icon: Image("animal_lion"), title: "Løve", value: "\(startImmediately ? session.allGameScore : lionScore)")
+                    scoreItem(icon: Image("animal_elephant"), title: "Elefant", value: "\(elephantScore)")
                 }
-            }
-
-            Spacer(minLength: 12)
-
-            HStack(spacing: 8) {
-                Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 28))
-                    .foregroundColor(.gray)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Uafgjort")
-                        .font(.subheadline.bold())
-                    Text("\(drawCount)")
-                        .font(.headline)
-                }
+                scoreItem(icon: Image(systemName: "hand.raised.fill"), title: "Uafgjort", value: "\(drawCount)", isSystem: true)
             }
         }
         .padding(.horizontal, 8)
         .foregroundColor(.black)
+    }
+
+    private func scoreItem(icon: Image, title: String, value: String, isSystem: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            if isSystem {
+                icon
+                    .font(.system(size: 24))
+                    .foregroundColor(.gray)
+                    .frame(width: 30, height: 30)
+            } else {
+                icon
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 34, height: 34)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.bold())
+                Text(value)
+                    .font(.headline)
+            }
+        }
     }
 
 

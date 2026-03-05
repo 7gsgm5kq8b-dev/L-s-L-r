@@ -241,22 +241,24 @@ struct AnimalGameView: View {
     @State private var showErrorFlash: Bool = false
     @StateObject private var speechManager = SpeechManager()
     private let hitPadding: CGFloat = 40
+    private var isPhone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
 
     var body: some View {
         GeometryReader { outerGeo in
             ZStack {
                 Color.white.ignoresSafeArea()
                 if gameStarted {
-                    VStack {
+                    VStack(spacing: 0) {
                         topButtonBar
-                            .padding(.top, 20)
-                            .padding(.horizontal, 16)
-                        Spacer()
+                            .padding(.top, 8)
+                        Spacer(minLength: 8)
                         gameLayout(outerGeo: outerGeo)
-                        Spacer()
+                        Spacer(minLength: 8)
                         scoreCounter
                             .padding(.bottom, 20)
                     }
+                    .safeAreaPadding(.horizontal, horizontalContentPadding(for: outerGeo))
+                    .safeAreaPadding(.bottom, 8)
                 }
                 if !gameStarted {
                     startScreen
@@ -329,6 +331,57 @@ struct AnimalGameView: View {
 
     // MARK: - Game Layout
     private func gameLayout(outerGeo: GeometryProxy) -> some View {
+        if !isPhone {
+            return AnyView(ipadGameLayout)
+        }
+
+        let size = outerGeo.size
+        let isPortrait = size.height >= size.width
+        let useVerticalLayout = isPortrait
+        let isPhoneLandscape = !useVerticalLayout
+
+        let contentMaxWidth: CGFloat = {
+            if useVerticalLayout { return min(size.width * 0.96, 560) }
+            return min(size.width * 0.94, 900)
+        }()
+
+        let imageSize = min(
+            useVerticalLayout ? size.width * 0.56 : size.height * 0.52,
+            useVerticalLayout ? size.height * 0.30 : size.width * 0.40,
+            useVerticalLayout ? 300 : 250
+        )
+
+        let optionColumnWidth = useVerticalLayout
+            ? min(contentMaxWidth, 500)
+            : min(contentMaxWidth * 0.48, 340)
+
+        let optionSpacing = useVerticalLayout
+            ? max(12, min(32, size.height * 0.035))
+            : max(8, min(16, size.height * 0.02))
+        let columnSpacing = max(12, min(28, size.width * 0.02))
+        let verticalSpacing = max(16, min(36, size.height * 0.03))
+
+        return AnyView(Group {
+            if useVerticalLayout {
+                VStack(spacing: verticalSpacing) {
+                    animalImage(size: imageSize)
+                    answerColumn(width: optionColumnWidth, spacing: optionSpacing)
+                }
+            } else {
+                HStack(alignment: .center, spacing: columnSpacing) {
+                    animalImage(size: imageSize)
+                        .frame(width: contentMaxWidth * 0.42)
+
+                    answerColumn(width: optionColumnWidth, spacing: optionSpacing, compactLandscape: isPhoneLandscape)
+                        .frame(width: optionColumnWidth, alignment: .center)
+                }
+            }
+        }
+        .frame(maxWidth: contentMaxWidth, maxHeight: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center))
+    }
+
+    private var ipadGameLayout: some View {
         HStack(spacing: 80) {
             VStack {
                 Image(currentQuestion.animal.imageName)
@@ -340,7 +393,7 @@ struct AnimalGameView: View {
 
             VStack(spacing: 40) {
                 ForEach(currentQuestion.options) { option in
-                    answerBubble(option: option)
+                    ipadAnswerBubble(option: option)
                         .anchorPreference(key: AnswerAnchorKey.self, value: .bounds) { anchor in
                             [option.id: anchor]
                         }
@@ -351,8 +404,52 @@ struct AnimalGameView: View {
         .padding(.horizontal, 80)
     }
 
+    private func animalImage(size: CGFloat) -> some View {
+        Image(currentQuestion.animal.imageName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private func answerColumn(width: CGFloat, spacing: CGFloat, compactLandscape: Bool = false) -> some View {
+        VStack(spacing: spacing) {
+            ForEach(currentQuestion.options) { option in
+                answerBubble(option: option, targetWidth: width, compactLandscape: compactLandscape)
+                    .anchorPreference(key: AnswerAnchorKey.self, value: .bounds) { anchor in
+                        [option.id: anchor]
+                    }
+            }
+        }
+        .frame(maxWidth: width)
+    }
+
     // MARK: - Answer Bubble
-    private func answerBubble(option: FoodOption) -> some View {
+    private func answerBubble(option: FoodOption, targetWidth: CGFloat, compactLandscape: Bool) -> some View {
+        let imageHeight = compactLandscape
+            ? max(50, min(82, targetWidth * 0.24))
+            : max(64, min(120, targetWidth * 0.42))
+
+        return ZStack {
+            Image(option.imageName)
+                .resizable()
+                .scaledToFit()
+                .frame(height: imageHeight)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, compactLandscape ? 8 : 14)
+                .padding(.vertical, compactLandscape ? 4 : 8)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color.blue.opacity(0.2))
+        .cornerRadius(compactLandscape ? 14 : 16)
+        .overlay(
+            RoundedRectangle(cornerRadius: compactLandscape ? 14 : 16)
+                .stroke(Color.blue, lineWidth: 2)
+        )
+        .contentShape(Rectangle())
+    }
+
+    private func ipadAnswerBubble(option: FoodOption) -> some View {
         ZStack {
             Image(option.imageName)
                 .resizable()
@@ -367,6 +464,14 @@ struct AnimalGameView: View {
                 .stroke(Color.blue, lineWidth: 2)
         )
         .contentShape(Rectangle())
+    }
+
+    private func horizontalContentPadding(for outerGeo: GeometryProxy) -> CGFloat {
+        let width = outerGeo.size.width
+        if width < 430 { return 12 }
+        if width < 700 { return 16 }
+        if width < 1000 { return 24 }
+        return 32
     }
 
     // MARK: - Drag Gesture
@@ -532,38 +637,54 @@ struct AnimalGameView: View {
 
     // MARK: - Start Screen
     private var startScreen: some View {
-        VStack(spacing: 24) {
-            Spacer(minLength: 80)
-            Text("🐵")
-                .font(.system(size: 120))
-            Text("Dyrespillet")
-                .font(.largeTitle.bold())
-                .foregroundColor(.black)
-            Text("Velkommen til Dyrespillet.\nForbind dyret med den mad, det spiser.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.black)
-                .padding()
-                .background(Color.black.opacity(0.05))
-                .cornerRadius(12)
-                .padding(.horizontal, 24)
+        GeometryReader { geo in
+            let size = geo.size
+            let isLandscape = size.width > size.height
+            let compactPhoneLandscape = isPhone && isLandscape
 
-            Button(action: {
-                gameStarted = true
-                speakQuestion()
-            }) {
-                Text("Spil")
-                    .font(.title2.bold())
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 40)
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(16)
+            VStack(spacing: compactPhoneLandscape ? 12 : 24) {
+                if compactPhoneLandscape {
+                    Spacer(minLength: 8)
+                } else {
+                    Spacer(minLength: 80)
+                }
+
+                Text("🐵")
+                    .font(.system(size: compactPhoneLandscape ? 80 : 120))
+
+                Text("Dyrespillet")
+                    .font((compactPhoneLandscape ? Font.system(size: 44, weight: .bold) : .largeTitle.bold()))
+                    .foregroundColor(.black)
+
+                Text("Velkommen til Dyrespillet.\nForbind dyret med den mad, det spiser.")
+                    .multilineTextAlignment(.center)
+                    .font(compactPhoneLandscape ? .title3 : .body)
+                    .foregroundColor(.black)
+                    .padding()
+                    .frame(maxWidth: compactPhoneLandscape ? min(size.width * 0.78, 620) : nil)
+                    .background(Color.black.opacity(0.05))
+                    .cornerRadius(12)
+                    .padding(.horizontal, compactPhoneLandscape ? 12 : 24)
+
+                Button(action: {
+                    gameStarted = true
+                    speakQuestion()
+                }) {
+                    Text("Spil")
+                        .font(.title2.bold())
+                        .padding(.vertical, compactPhoneLandscape ? 10 : 12)
+                        .padding(.horizontal, compactPhoneLandscape ? 44 : 40)
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(16)
+                }
+
+                Spacer(minLength: compactPhoneLandscape ? 8 : 24)
             }
-
-            Spacer()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .safeAreaPadding(.horizontal, compactPhoneLandscape ? 12 : 0)
+            .background(Color.white.ignoresSafeArea())
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white.ignoresSafeArea())
     }
 
     // MARK: - Voice helpers (opdateret til modulær AI-sekvens)

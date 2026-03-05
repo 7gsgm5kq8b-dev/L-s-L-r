@@ -449,6 +449,7 @@ struct MemoryMatchView: View {
 
     // Turn pulse animation
     @State private var turnPulse: Bool = false
+    private var isPhone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
 
     private let tileSpacing: CGFloat = 12
 
@@ -1011,162 +1012,222 @@ struct MemoryMatchView: View {
 
     // MARK: - Start Screen (grafiske bokse)
     private var startScreen: some View {
-        VStack(spacing: 20) {
-            Spacer(minLength: 40)
+        GeometryReader { geo in
+            let size = geo.size
+            let isLandscape = size.width > size.height
+            let compactPhoneLandscape = isPhone && isLandscape
 
-            Text("Vendespil")
-                .font(.largeTitle.bold())
-                .foregroundColor(.black)
+            ScrollView(.vertical) {
+                Group {
+                    if compactPhoneLandscape {
+                        let rightColumnWidth = min(size.width * 0.46, 360)
 
-            Text("Vælg spiltype og sværhedsgrad.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.black)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 6)
-                .background(Color.black.opacity(0.03))
-                .cornerRadius(12)
+                        HStack(alignment: .top, spacing: 16) {
+                            VStack(spacing: 10) {
+                                Text("Vendespil")
+                                    .font(.system(size: 42, weight: .bold))
+                                    .foregroundColor(.black)
 
-            // Tre grafiske bokse
-            GeometryReader { geo in
-                let boxWidth = max(120, min(360, (geo.size.width - 48) / 3))
-                HStack(spacing: 12) {
-                    // Solo (1 spiller, ingen modstander)
-                    modeBox(
-                        title: "1 spiller",
-                        subtitle: "Spil alene — ingen modstander",
-                        systemImage: "person.fill",
-                        isSelected: selectedMode == .solo,
-                        width: boxWidth
-                    ) {
-                        selectedMode = .solo
+                                Text("Vælg spiltype og sværhedsgrad.")
+                                    .multilineTextAlignment(.center)
+                                    .foregroundColor(.black)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background(Color.black.opacity(0.03))
+                                    .cornerRadius(12)
+                            }
+                            .frame(maxWidth: .infinity)
+
+                            VStack(spacing: 10) {
+                                modeBox(
+                                    title: "1 spiller",
+                                    subtitle: "Spil alene",
+                                    systemImage: "person.fill",
+                                    isSelected: selectedMode == .solo,
+                                    width: rightColumnWidth,
+                                    compact: true
+                                ) { selectedMode = .solo }
+
+                                modeBox(
+                                    title: "1 spiller mod",
+                                    subtitle: "Spil mod computer",
+                                    systemImage: "person.crop.circle.badge.checkmark",
+                                    isSelected: selectedMode == .vsAI,
+                                    width: rightColumnWidth,
+                                    compact: true
+                                ) { selectedMode = .vsAI }
+
+                                modeBox(
+                                    title: "2 spiller",
+                                    subtitle: "To spillere lokalt",
+                                    systemImage: "person.2.fill",
+                                    isSelected: selectedMode == .twoPlayer,
+                                    width: rightColumnWidth,
+                                    compact: true
+                                ) { selectedMode = .twoPlayer }
+
+                                difficultySelector(compact: true)
+                                startButton(compact: true)
+                            }
+                            .frame(width: rightColumnWidth)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                    } else {
+                        VStack(spacing: 20) {
+                            Spacer(minLength: 40)
+
+                            Text("Vendespil")
+                                .font(.largeTitle.bold())
+                                .foregroundColor(.black)
+
+                            Text("Vælg spiltype og sværhedsgrad.")
+                                .multilineTextAlignment(.center)
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 28)
+                                .padding(.vertical, 6)
+                                .background(Color.black.opacity(0.03))
+                                .cornerRadius(12)
+
+                            GeometryReader { modeGeo in
+                                let boxWidth = max(108, min(360, (modeGeo.size.width - 24) / 3))
+                                HStack(spacing: 12) {
+                                    modeBox(
+                                        title: "1 spiller",
+                                        subtitle: "Spil alene — ingen modstander",
+                                        systemImage: "person.fill",
+                                        isSelected: selectedMode == .solo,
+                                        width: boxWidth
+                                    ) { selectedMode = .solo }
+
+                                    modeBox(
+                                        title: "1 spiller mod",
+                                        subtitle: "Spil mod computeren",
+                                        systemImage: "person.crop.circle.badge.checkmark",
+                                        isSelected: selectedMode == .vsAI,
+                                        width: boxWidth
+                                    ) { selectedMode = .vsAI }
+
+                                    modeBox(
+                                        title: "2 spiller",
+                                        subtitle: "To spillere lokalt",
+                                        systemImage: "person.2.fill",
+                                        isSelected: selectedMode == .twoPlayer,
+                                        width: boxWidth
+                                    ) { selectedMode = .twoPlayer }
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .frame(height: 140)
+                            .padding(.horizontal, 16)
+
+                            difficultySelector(compact: false)
+                            startButton(compact: false)
+                                .padding(.top, 12)
+
+                            Spacer(minLength: 20)
+                        }
+                        .padding(.horizontal, 8)
                     }
-
-                    // Vs AI (1 spiller mod)
-                    modeBox(
-                        title: "1 spiller mod",
-                        subtitle: "Spil mod computeren",
-                        systemImage: "person.crop.circle.badge.checkmark",
-                        isSelected: selectedMode == .vsAI,
-                        width: boxWidth
-                    ) {
-                        selectedMode = .vsAI
-                    }
-
-                    // Two player
-                    modeBox(
-                        title: "2 spiller",
-                        subtitle: "To spillere lokalt",
-                        systemImage: "person.2.fill",
-                        isSelected: selectedMode == .twoPlayer,
-                        width: boxWidth
-                    ) {
-                        selectedMode = .twoPlayer
-                    }
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, minHeight: size.height)
             }
-            .frame(height: 140)
-            .padding(.horizontal, 16)
-
-            // Difficulty buttons
-            HStack(spacing: 12) {
-                Button(action: { showSettingsDifficulty = .easy }) {
-                    Text("Let")
-                        .font(.headline)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 22)
-                        .background(showSettingsDifficulty == .easy ? Color.green : Color.black.opacity(0.06))
-                        .foregroundColor(showSettingsDifficulty == .easy ? .white : .black)
-                        .cornerRadius(12)
-                }
-                Button(action: { showSettingsDifficulty = .hard }) {
-                    Text("Svær")
-                        .font(.headline)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 22)
-                        .background(showSettingsDifficulty == .hard ? Color.green : Color.black.opacity(0.06))
-                        .foregroundColor(showSettingsDifficulty == .hard ? .white : .black)
-                        .cornerRadius(12)
-                }
-            }
-
-            // Startknap
-            Button(action: {
-                // Start game with chosen settings
-                showStartScreen = false
-
-                // Configure VM based on selectedMode
-                switch selectedMode {
-                case .solo:
-                    vm.isSinglePlayer = false
-                case .vsAI:
-                    vm.isSinglePlayer = true
-                    vm.aiDifficulty = showSettingsDifficulty
-                    // Tuning for child level
-                    vm.aiMistakeChance = 0.75            // 60% chance for at lave "fejl"
-                    vm.aiFlipDelayMultiplier = 2.0      // ca. 1.8x langsommere flips
-                case .twoPlayer:
-                    vm.isSinglePlayer = false
-                }
-
-                let pairs = MemoryMatchViewModel.pairCount(for: showSettingsDifficulty)
-                vm.pairCount = pairs
-                vm.gridColumns = (pairs == 8) ? 4 : 8
-                let animals = vm.generateRandomAnimals(count: pairs)
-                vm.setupCards(with: animals)
-
-                if vm.isSinglePlayer && vm.currentTurn == .player2 {
-                    vm.aiTakeTurnIfNeeded()
-                }
-            }) {
-                Text("Spil")
-                    .font(.title2.bold())
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 40)
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(16)
-            }
-            .padding(.top, 12)
-
-            Spacer()
+            .background(Color.white.ignoresSafeArea())
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white.ignoresSafeArea())
         .onAppear {
             // default selection
-            if selectedMode == nil {
-                selectedMode = .solo
-            }
+            selectedMode = .solo
             showSettingsDifficulty = difficulty
+        }
+    }
+
+    private func difficultySelector(compact: Bool) -> some View {
+        HStack(spacing: 12) {
+            Button(action: { showSettingsDifficulty = .easy }) {
+                Text("Let")
+                    .font(.headline)
+                    .padding(.vertical, compact ? 8 : 10)
+                    .padding(.horizontal, compact ? 16 : 22)
+                    .background(showSettingsDifficulty == .easy ? Color.green : Color.black.opacity(0.06))
+                    .foregroundColor(showSettingsDifficulty == .easy ? .white : .black)
+                    .cornerRadius(12)
+            }
+            Button(action: { showSettingsDifficulty = .hard }) {
+                Text("Svær")
+                    .font(.headline)
+                    .padding(.vertical, compact ? 8 : 10)
+                    .padding(.horizontal, compact ? 16 : 22)
+                    .background(showSettingsDifficulty == .hard ? Color.green : Color.black.opacity(0.06))
+                    .foregroundColor(showSettingsDifficulty == .hard ? .white : .black)
+                    .cornerRadius(12)
+            }
+        }
+    }
+
+    private func startButton(compact: Bool) -> some View {
+        Button(action: {
+            // Start game with chosen settings
+            showStartScreen = false
+
+            // Configure VM based on selectedMode
+            switch selectedMode {
+            case .solo:
+                vm.isSinglePlayer = false
+            case .vsAI:
+                vm.isSinglePlayer = true
+                vm.aiDifficulty = showSettingsDifficulty
+                // Tuning for child level
+                vm.aiMistakeChance = 0.75            // 60% chance for at lave "fejl"
+                vm.aiFlipDelayMultiplier = 2.0      // ca. 1.8x langsommere flips
+            case .twoPlayer:
+                vm.isSinglePlayer = false
+            }
+
+            let pairs = MemoryMatchViewModel.pairCount(for: showSettingsDifficulty)
+            vm.pairCount = pairs
+            vm.gridColumns = (pairs == 8) ? 4 : 8
+            let animals = vm.generateRandomAnimals(count: pairs)
+            vm.setupCards(with: animals)
+
+            if vm.isSinglePlayer && vm.currentTurn == .player2 {
+                vm.aiTakeTurnIfNeeded()
+            }
+        }) {
+            Text("Spil")
+                .font(.title2.bold())
+                .padding(.vertical, compact ? 10 : 12)
+                .padding(.horizontal, compact ? 34 : 40)
+                .background(Color.green)
+                .foregroundColor(.white)
+                .cornerRadius(16)
         }
     }
 
     // MARK: - Mode box helper
     @ViewBuilder
-    private func modeBox(title: String, subtitle: String, systemImage: String, isSelected: Bool, width: CGFloat, action: @escaping () -> Void) -> some View {
+    private func modeBox(title: String, subtitle: String, systemImage: String, isSelected: Bool, width: CGFloat, compact: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(.system(size: compact ? 22 : 28, weight: .semibold))
                     .foregroundColor(isSelected ? .white : .black)
-                    .padding(12)
+                    .padding(compact ? 8 : 12)
                     .background(isSelected ? Color.green.opacity(0.95) : Color.black.opacity(0.06))
                     .clipShape(Circle())
 
                 Text(title)
-                    .font(.headline)
+                    .font(compact ? .subheadline.bold() : .headline)
                     .foregroundColor(isSelected ? .white : .black)
 
                 Text(subtitle)
-                    .font(.caption)
+                    .font(compact ? .caption2 : .caption)
                     .multilineTextAlignment(.center)
                     .foregroundColor(isSelected ? Color.white.opacity(0.9) : Color.gray)
-                    .lineLimit(2)
+                    .lineLimit(compact ? 1 : 2)
                     .frame(maxWidth: width * 0.9)
             }
-            .padding(12)
-            .frame(width: width, height: 120)
+            .padding(compact ? 8 : 12)
+            .frame(width: width, height: compact ? 86 : 120)
             .background(isSelected ? Color.green : Color.white)
             .cornerRadius(12)
             .shadow(color: isSelected ? Color.black.opacity(0.18) : Color.black.opacity(0.04), radius: isSelected ? 8 : 4, x: 0, y: 4)
