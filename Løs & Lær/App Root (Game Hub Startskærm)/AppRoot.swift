@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+// Comment IAP 03-04-2026
 
 // Hvilke spil findes i platformen
 enum GameSelection: CaseIterable {
@@ -22,7 +23,6 @@ enum GameSelection: CaseIterable {
 }
 
 // Her styrer du, hvilke spil der er "aktive" i random/allGames
-// For nu: kun labyrinten er aktiv
 let enabledGames: [GameSelection] = [
     .labyrinthLetters,
     .labyrinthMath,
@@ -31,19 +31,17 @@ let enabledGames: [GameSelection] = [
     .ticTacToe,
     .memoryMatch,
     .clock
-    // Senere kan du tilføje: .clock,
 ]
-
-// Din eksisterende Difficulty enum genbruges
-// enum Difficulty { case easy, hard }
 
 struct ContentView: View {
     @StateObject var session = GameSessionManager()
-    
+    @StateObject private var trialManager = TrialManager.shared
+
     @State private var selectedGame: GameSelection = .none
     @State private var difficulty: Difficulty = .easy
     @State private var showNotReadyAlert = false
     @State private var pendingSelection: GameSelection? = nil
+    @State private var showUnlockScreen = false
 
     var body: some View {
         ZStack {
@@ -52,11 +50,13 @@ struct ContentView: View {
             switch selectedGame {
             case .none:
                 HomeView(
-                    selectedGame: $selectedGame,
                     difficulty: $difficulty,
                     onNotReady: { game in
                         pendingSelection = game
                         showNotReadyAlert = true
+                    },
+                    onSelectGame: { game in
+                        startGameSelection(game)
                     }
                 )
 
@@ -94,8 +94,8 @@ struct ContentView: View {
                 AnimalGameView(
                     difficulty: difficulty,
                     startImmediately: false,
-                    onExit: { selectedGame = .none },      // når spillet afslutter sig selv
-                    onBackToHub: { selectedGame = .none }  // når brugeren trykker tilbage
+                    onExit: { selectedGame = .none },
+                    onBackToHub: { selectedGame = .none }
                 )
 
             case .memoryMatch:
@@ -106,23 +106,21 @@ struct ContentView: View {
                     onBackToHub: { selectedGame = .none }
                 )
 
-                
             case .allGames:
                 AllGamesModeView(
                     difficulty: difficulty,
-                    onExit: { selectedGame = .none }        // når rotationen er færdig
+                    onExit: { selectedGame = .none }
                 )
+                .environmentObject(session)
 
-                .environmentObject(session)   // ⭐ vigtig linje
-                
             case .ticTacToe:
                 TicTacToeView(
                     difficulty: difficulty,
-                    startImmediately: false,                 // hub: vis startskærm
-                    onExit: { selectedGame = .none },        // når spillet afslutter sig selv
-                    onBackToHub: { selectedGame = .none }    // når brugeren trykker tilbage
+                    startImmediately: false,
+                    onExit: { selectedGame = .none },
+                    onBackToHub: { selectedGame = .none }
                 )
-                
+
             case .clock:
                 ClockGameView(
                     difficulty: difficulty,
@@ -134,14 +132,14 @@ struct ContentView: View {
             case .guessAnimal:
                 GuessAnimalView(
                     difficulty: difficulty,
-                    startImmediately: false,                 // hub: vis startskærm
-                    onExit: { selectedGame = .none },        // når spillet afslutter sig selv
-                    onBackToHub: { selectedGame = .none }    // når brugeren trykker tilbage
+                    startImmediately: false,
+                    onExit: { selectedGame = .none },
+                    onBackToHub: { selectedGame = .none }
                 )
-                .environmentObject(session) // behold kun hvis GuessAnimalView bruger session
-
+                .environmentObject(session)
             }
         }
+        .environmentObject(trialManager)
         .alert("Spillet er endnu ikke klart", isPresented: $showNotReadyAlert) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -150,6 +148,29 @@ struct ContentView: View {
             } else {
                 Text("Der arbejdes på at gøre dette spil klar.")
             }
+        }
+        .fullScreenCover(isPresented: $showUnlockScreen) {
+            UnlockFullGameView(isPresented: $showUnlockScreen)
+                .environmentObject(trialManager)
+        }
+        .task {
+            await trialManager.refreshStoreState()
+        }
+        .onChange(of: trialManager.hasUnlockedFullGame) { _, unlocked in
+            if unlocked {
+                showUnlockScreen = false
+            }
+        }
+    }
+
+    private func startGameSelection(_ game: GameSelection) {
+        guard game != .none else { return }
+
+        if trialManager.canStartGame() {
+            trialManager.registerGamePlay()
+            selectedGame = game
+        } else {
+            showUnlockScreen = true
         }
     }
 
