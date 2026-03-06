@@ -337,6 +337,7 @@ struct LabyrinthGameView: View {
     @State private var audioPlayer: AVAudioPlayer?
     
     @State private var introPlayed: Bool = false
+    private var isPhone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
 
 
 
@@ -584,6 +585,7 @@ struct LabyrinthGameView: View {
     // MARK: - Body
     var body: some View {
         GeometryReader { geo in
+            let transform = gameTransform(for: geo.size)
             ZStack {
                 Color.black.ignoresSafeArea()
                 Image("jungleBackground")
@@ -593,10 +595,10 @@ struct LabyrinthGameView: View {
                     .clipped()
                     .ignoresSafeArea()
 
-                gameLayer(in: geo.size)
-                    .offset(x: gameOffsetX, y: gameOffsetY)
+                gameLayer(in: geo.size, scaleMultiplier: transform.scaleMultiplier)
+                    .offset(x: transform.offsetX, y: transform.offsetY)
 
-                uiOverlay(in: geo.size)
+                uiOverlay(in: geo.size, safeTop: geo.safeAreaInsets.top)
             }
         }
         
@@ -617,20 +619,36 @@ struct LabyrinthGameView: View {
 
     }
 
+    private func gameTransform(for size: CGSize) -> (offsetX: CGFloat, offsetY: CGFloat, scaleMultiplier: CGFloat) {
+        // Preserve current iPad tuning exactly.
+        guard isPhone else {
+            return (gameOffsetX, gameOffsetY, gameScaleMultiplier)
+        }
+
+        let isLandscape = size.width > size.height
+        if isLandscape {
+            return (-38, -58, 1.10)
+        } else {
+            return (-72, -86, 1.15)
+        }
+    }
+
     // MARK: - UI Overlay
-    private func uiOverlay(in size: CGSize) -> some View {
-        ZStack(alignment: .topLeading) {
+    private func uiOverlay(in size: CGSize, safeTop: CGFloat) -> some View {
+        let topInset = max(8, safeTop + 6)
+
+        return ZStack(alignment: .topLeading) {
             if !gameStarted {
                 startScreen
             }
 
             if gameStarted {
                 HStack {
-                    topButtonBar
+                    topButtonBar(in: size)
                     Spacer()
                 }
                 .padding(.horizontal, 14)
-                .padding(.top, 35)
+                .padding(.top, topInset)
             }
 
             if gameStarted {
@@ -643,7 +661,7 @@ struct LabyrinthGameView: View {
                         }
                     }
                 }
-                .padding(.top, 35)
+                .padding(.top, topInset)
                 .padding(.trailing, 14)
             }
 
@@ -672,8 +690,22 @@ struct LabyrinthGameView: View {
     }
 
     // MARK: - Top Button Bar
-    private var topButtonBar: some View {
-        HStack(spacing: 20) {
+    private func topButtonBar(in size: CGSize) -> some View {
+        Group {
+            if isPhone {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    controlButtonsRow(spacing: 10)
+                        .padding(.horizontal, 2)
+                }
+                .frame(maxWidth: min(size.width * 0.92, 520), alignment: .leading)
+            } else {
+                controlButtonsRow(spacing: 20)
+            }
+        }
+    }
+
+    private func controlButtonsRow(spacing: CGFloat) -> some View {
+        HStack(spacing: spacing) {
             Button(action: { onBackToHub() }) {
                 Text("← Tilbage")
                     .font(.headline.bold())
@@ -684,7 +716,6 @@ struct LabyrinthGameView: View {
                     .cornerRadius(10)
                     .shadow(radius: 3)
             }
-
 
             // Speaker-knap – afhænger af mode
             Button(action: {
@@ -738,7 +769,6 @@ struct LabyrinthGameView: View {
                             }
                         }
                     }
-
 
                 case .words:
                     if !currentWord.isEmpty {
@@ -899,73 +929,162 @@ struct LabyrinthGameView: View {
 
     // MARK: - Start Screen
     var startScreen: some View {
-        VStack(spacing: 24) {
-            Spacer(minLength: 80)
-            if UIImage(named: "jungleCharacter") != nil {
-                Image("jungleCharacter")
-                    .resizable()
-                    .frame(width: 180, height: 180)
+        Group {
+            if isPhone {
+                GeometryReader { geo in
+                    let isLandscape = geo.size.width > geo.size.height
+                    let cardWidth = min(geo.size.width * 0.9, 560)
+                    let imageSize: CGFloat = isLandscape ? 108 : 156
+                    let titleSize: CGFloat = isLandscape ? 34 : 42
+                    let spacing: CGFloat = isLandscape ? 14 : 20
+                    let topPad = max(12, geo.safeAreaInsets.top + 4)
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: spacing) {
+                            if UIImage(named: "jungleCharacter") != nil {
+                                Image("jungleCharacter")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: imageSize, height: imageSize)
+                            } else {
+                                Text("⛵️")
+                                    .font(.system(size: imageSize * 0.72))
+                            }
+
+                            Text("Jungle River Labyrint")
+                                .font(.system(size: titleSize, weight: .heavy))
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.center)
+                                .minimumScaleFactor(0.8)
+                                .lineLimit(1)
+                                .shadow(radius: 4)
+
+                            Text(introText(for: gameMode))
+                                .multilineTextAlignment(.center)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(Color.black.opacity(0.45))
+                                .cornerRadius(12)
+                                .shadow(radius: 5)
+                                .frame(maxWidth: cardWidth)
+
+                            HStack(spacing: 14) {
+                                Button(action: { internalDifficulty = .easy }) {
+                                    HStack {
+                                        Image(systemName: internalDifficulty == .easy ? "largecircle.fill.circle" : "circle")
+                                        Text("Let")
+                                    }
+                                    .font(.headline.bold())
+                                    .foregroundColor(.white)
+                                    .padding(.vertical, 9)
+                                    .frame(maxWidth: .infinity)
+                                    .background(Color.black.opacity(0.4))
+                                    .cornerRadius(12)
+                                }
+
+                                Button(action: { internalDifficulty = .hard }) {
+                                    HStack {
+                                        Image(systemName: internalDifficulty == .hard ? "largecircle.fill.circle" : "circle")
+                                        Text("Svær")
+                                    }
+                                    .font(.headline.bold())
+                                    .foregroundColor(.white)
+                                    .padding(.vertical, 9)
+                                    .frame(maxWidth: .infinity)
+                                    .background(Color.black.opacity(0.4))
+                                    .cornerRadius(12)
+                                }
+                            }
+                            .frame(maxWidth: min(cardWidth, 420))
+
+                            Button(action: startGame) {
+                                Text("Spil")
+                                    .font(.title3.bold())
+                                    .frame(maxWidth: min(cardWidth * 0.5, 240))
+                                    .padding(.vertical, 12)
+                                    .background(Color.green)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(16)
+                                    .shadow(radius: 5)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, topPad)
+                        .padding(.bottom, 20)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: geo.size.height, alignment: .center)
+                    }
+                }
             } else {
-                Text("⛵️")
-                    .font(.system(size: 120))
-            }
-
-            Text("Jungle River Labyrint")
-                .font(.largeTitle.bold())
-                .foregroundColor(.white)
-                .shadow(radius: 4)
-
-            Text(introText(for: gameMode))
-                .multilineTextAlignment(.center)
-                .foregroundColor(.white)
-                .padding()
-                .background(Color.black.opacity(0.45))
-                .cornerRadius(12)
-                .shadow(radius: 5)
-                .padding(.horizontal, 24)
-
-
-            HStack(spacing: 20) {
-                Button(action: { internalDifficulty = .easy }) {
-                    HStack {
-                        Image(systemName: internalDifficulty == .easy ? "largecircle.fill.circle" : "circle")
-                        Text("Let")
+                VStack(spacing: 24) {
+                    Spacer(minLength: 80)
+                    if UIImage(named: "jungleCharacter") != nil {
+                        Image("jungleCharacter")
+                            .resizable()
+                            .frame(width: 180, height: 180)
+                    } else {
+                        Text("⛵️")
+                            .font(.system(size: 120))
                     }
-                    .font(.title3.bold())
-                    .foregroundColor(.white)
-                    .padding(10)
-                    .background(Color.black.opacity(0.4))
-                    .cornerRadius(12)
-                }
 
-                Button(action: { internalDifficulty = .hard }) {
-                    HStack {
-                        Image(systemName: internalDifficulty == .hard ? "largecircle.fill.circle" : "circle")
-                        Text("Svær")
+                    Text("Jungle River Labyrint")
+                        .font(.largeTitle.bold())
+                        .foregroundColor(.white)
+                        .shadow(radius: 4)
+
+                    Text(introText(for: gameMode))
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.white)
+                        .padding()
+                        .background(Color.black.opacity(0.45))
+                        .cornerRadius(12)
+                        .shadow(radius: 5)
+                        .padding(.horizontal, 24)
+
+
+                    HStack(spacing: 20) {
+                        Button(action: { internalDifficulty = .easy }) {
+                            HStack {
+                                Image(systemName: internalDifficulty == .easy ? "largecircle.fill.circle" : "circle")
+                                Text("Let")
+                            }
+                            .font(.title3.bold())
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(Color.black.opacity(0.4))
+                            .cornerRadius(12)
+                        }
+
+                        Button(action: { internalDifficulty = .hard }) {
+                            HStack {
+                                Image(systemName: internalDifficulty == .hard ? "largecircle.fill.circle" : "circle")
+                                Text("Svær")
+                            }
+                            .font(.title3.bold())
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(Color.black.opacity(0.4))
+                            .cornerRadius(12)
+                        }
                     }
-                    .font(.title3.bold())
-                    .foregroundColor(.white)
-                    .padding(10)
-                    .background(Color.black.opacity(0.4))
-                    .cornerRadius(12)
+
+                    Button(action: startGame) {
+                        Text("Spil")
+                            .font(.title2.bold())
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 40)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(16)
+                            .shadow(radius: 5)
+                    }
+
+                    Spacer()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-
-            
-            Button(action: startGame) {
-                Text("Spil")
-                    .font(.title2.bold())
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 40)
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(16)
-                    .shadow(radius: 5)
-            }
-
-            Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Success Overlay
@@ -1024,10 +1143,10 @@ struct LabyrinthGameView: View {
     }
 
     // MARK: - Game Layer
-    private func gameLayer(in size: CGSize) -> some View {
+    private func gameLayer(in size: CGSize, scaleMultiplier: CGFloat) -> some View {
         let scaleX = size.width / canvasWidth
         let scaleY = size.height / canvasHeight
-        let objectScale = min(scaleX, scaleY) * gameScaleMultiplier
+        let objectScale = min(scaleX, scaleY) * scaleMultiplier
 
         return ZStack {
             if gameStarted {
@@ -2023,7 +2142,3 @@ struct LabyrinthGameView: View {
 
     }
 }
-
-
-
-

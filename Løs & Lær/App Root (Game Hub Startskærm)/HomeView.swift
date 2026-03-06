@@ -10,6 +10,7 @@ struct HomeView: View {
 
     @EnvironmentObject private var trialManager: TrialManager
     @State private var showParentInfo = false
+    @State private var showUnlockScreen = false
 
     var body: some View {
         GeometryReader { geo in
@@ -74,9 +75,7 @@ struct HomeView: View {
                     DifficultyPicker(difficulty: $difficulty)
                         .padding(.top, 6)
 
-                    #if DEBUG
-                    debugPanel
-                    #endif
+                    trialStatusPanel
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, layout.horizontalPadding)
@@ -89,6 +88,10 @@ struct HomeView: View {
         .fullScreenCover(isPresented: $showParentInfo) {
             ParentInfoView(showParentInfo: $showParentInfo)
         }
+        .sheet(isPresented: $showUnlockScreen) {
+            UnlockFullGameView(isPresented: $showUnlockScreen)
+                .environmentObject(trialManager)
+        }
     }
 
     private var headerRow: some View {
@@ -98,11 +101,22 @@ struct HomeView: View {
                 .foregroundColor(.black)
                 .frame(maxWidth: .infinity, alignment: .center)
 
-            Button(action: { showParentInfo = true }) {
-                Image(systemName: "info.circle")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(.gray)
-                    .padding(6)
+            HStack(spacing: 4) {
+                if !trialManager.hasUnlockedFullGame {
+                    Button(action: { showUnlockScreen = true }) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(.gray)
+                            .padding(6)
+                    }
+                }
+
+                Button(action: { showParentInfo = true }) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(.gray)
+                        .padding(6)
+                }
             }
         }
     }
@@ -142,33 +156,43 @@ struct HomeView: View {
         return HomeLayout(columns: columns, tileSize: tileSize, gridSpacing: spacing, horizontalPadding: horizontalPadding)
     }
 
-    #if DEBUG
-    private var debugTrialLimit: Int { 3 }
-
-    private var debugPlaysUsed: Int {
-        max(0, debugTrialLimit - trialManager.freePlaysRemaining)
+    private var trialPlaysUsed: Int {
+        max(0, trialManager.configuredTrialPlayLimit - trialManager.freePlaysRemaining)
     }
 
-    private var debugPanel: some View {
+    private var trialStatusPanel: some View {
         VStack(spacing: 8) {
-            Text("DEBUG Trial")
-                .font(.footnote.bold())
-                .foregroundColor(.black.opacity(0.75))
-
             ViewThatFits {
                 HStack(spacing: 12) {
                     Text("Tilbage: \(trialManager.freePlaysRemaining)")
-                    Text("Spillet: \(debugPlaysUsed)")
-                    Text("Unlocket: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
+                    Text("Spillet: \(trialPlaysUsed)")
+                    Text("Unlocked: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
                 }
                 VStack(spacing: 4) {
                     Text("Tilbage: \(trialManager.freePlaysRemaining)")
-                    Text("Spillet: \(debugPlaysUsed)")
-                    Text("Unlocket: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
+                    Text("Spillet: \(trialPlaysUsed)")
+                    Text("Unlocked: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
                 }
             }
             .font(.caption.weight(.semibold))
             .foregroundColor(.black.opacity(0.8))
+
+            #if DEBUG && TRIAL_DEBUG_UI
+            debugControls
+            #endif
+        }
+        .padding(10)
+        .background(Color.white.opacity(0.75))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
+    }
+
+    #if DEBUG && TRIAL_DEBUG_UI
+    private var debugControls: some View {
+        VStack(spacing: 8) {
+            Text("DEBUG Trial")
+                .font(.footnote.bold())
+                .foregroundColor(.black.opacity(0.75))
 
             ViewThatFits {
                 HStack(spacing: 8) {
@@ -206,10 +230,6 @@ struct HomeView: View {
                 }
             }
         }
-        .padding(10)
-        .background(Color.white.opacity(0.75))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal)
     }
     #endif
 }

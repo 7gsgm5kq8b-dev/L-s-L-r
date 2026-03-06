@@ -153,9 +153,6 @@ struct ContentView: View {
             UnlockFullGameView(isPresented: $showUnlockScreen)
                 .environmentObject(trialManager)
         }
-        .task {
-            await trialManager.refreshStoreState()
-        }
         .onChange(of: trialManager.hasUnlockedFullGame) { _, unlocked in
             if unlocked {
                 showUnlockScreen = false

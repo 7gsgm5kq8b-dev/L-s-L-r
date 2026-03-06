@@ -1,6 +1,7 @@
 import SwiftUI
 import StoreKit
 import Combine
+import Security
 
 // Comment IAP 03-04-2026
 @MainActor
@@ -34,17 +35,25 @@ final class TrialManager: ObservableObject {
     @Published var lastStoreError: String?
 
     private let userDefaults: UserDefaults
+    private let keychain: KeychainStore
 
     private init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
+        self.keychain = KeychainStore(service: Bundle.main.bundleIdentifier ?? "o0Pedersen0o.L-s---L-r")
 
-        if let persistedPlays = userDefaults.object(forKey: Keys.freePlaysRemaining) as? Int {
-            self.freePlaysRemaining = max(0, persistedPlays)
-        } else {
-            self.freePlaysRemaining = Self.defaultFreePlays
-        }
+        let persistedPlays = keychain.int(forKey: Keys.freePlaysRemaining)
+            ?? (userDefaults.object(forKey: Keys.freePlaysRemaining) as? Int)
+        self.freePlaysRemaining = max(0, persistedPlays ?? Self.defaultFreePlays)
 
-        self.hasUnlockedFullGame = userDefaults.bool(forKey: Keys.hasUnlockedFullGame)
+        let persistedUnlock = keychain.bool(forKey: Keys.hasUnlockedFullGame)
+            ?? userDefaults.object(forKey: Keys.hasUnlockedFullGame) as? Bool
+        self.hasUnlockedFullGame = persistedUnlock ?? false
+
+        persist()
+    }
+
+    var configuredTrialPlayLimit: Int {
+        Self.defaultFreePlays
     }
 
     // MARK: - Trial logic
@@ -76,7 +85,6 @@ final class TrialManager: ObservableObject {
         defer { isLoadingStoreData = false }
 
         await loadProduct()
-        await refreshEntitlements()
     }
 
     private func loadProduct() async {
@@ -183,10 +191,69 @@ final class TrialManager: ObservableObject {
     private func persist() {
         userDefaults.set(freePlaysRemaining, forKey: Keys.freePlaysRemaining)
         userDefaults.set(hasUnlockedFullGame, forKey: Keys.hasUnlockedFullGame)
+        keychain.setInt(freePlaysRemaining, forKey: Keys.freePlaysRemaining)
+        keychain.setBool(hasUnlockedFullGame, forKey: Keys.hasUnlockedFullGame)
     }
 
     private enum StoreVerificationError: Error {
         case failed
+    }
+
+    private struct KeychainStore {
+        let service: String
+
+        func int(forKey key: String) -> Int? {
+            guard let value = string(forKey: key) else { return nil }
+            return Int(value)
+        }
+
+        func bool(forKey key: String) -> Bool? {
+            guard let value = string(forKey: key) else { return nil }
+            return value == "1"
+        }
+
+        func setInt(_ value: Int, forKey key: String) {
+            setString(String(value), forKey: key)
+        }
+
+        func setBool(_ value: Bool, forKey key: String) {
+            setString(value ? "1" : "0", forKey: key)
+        }
+
+        private func string(forKey key: String) -> String? {
+            var query = baseQuery(forKey: key)
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+            var item: CFTypeRef?
+            let status = SecItemCopyMatching(query as CFDictionary, &item)
+            guard status == errSecSuccess,
+                  let data = item as? Data,
+                  let value = String(data: data, encoding: .utf8) else { return nil }
+            return value
+        }
+
+        private func setString(_ value: String, forKey key: String) {
+            let data = Data(value.utf8)
+            let query = baseQuery(forKey: key)
+            let attributes: [String: Any] = [kSecValueData as String: data]
+
+            let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            if updateStatus == errSecItemNotFound {
+                var insertQuery = query
+                insertQuery[kSecValueData as String] = data
+                SecItemAdd(insertQuery as CFDictionary, nil)
+            }
+        }
+
+        private func baseQuery(forKey key: String) -> [String: Any] {
+            [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: key,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+            ]
+        }
     }
 
     // MARK: - Debug helpers
