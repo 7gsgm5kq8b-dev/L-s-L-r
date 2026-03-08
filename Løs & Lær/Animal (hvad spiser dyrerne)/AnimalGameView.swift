@@ -242,6 +242,7 @@ struct AnimalGameView: View {
     @StateObject private var speechManager = SpeechManager()
     private let hitPadding: CGFloat = 40
     private var isPhone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
+    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     var body: some View {
         GeometryReader { outerGeo in
@@ -331,8 +332,8 @@ struct AnimalGameView: View {
 
     // MARK: - Game Layout
     private func gameLayout(outerGeo: GeometryProxy) -> some View {
-        if !isPhone {
-            return AnyView(ipadGameLayout)
+        if isPad {
+            return AnyView(ipadGameLayout(outerGeo: outerGeo))
         }
 
         let size = outerGeo.size
@@ -381,7 +382,78 @@ struct AnimalGameView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center))
     }
 
-    private var ipadGameLayout: some View {
+    private struct IPadLandscapeLayout {
+        let mainImageSize: CGFloat
+        let sideColumnWidth: CGFloat
+        let optionButtonHeight: CGFloat
+        let optionImageHeight: CGFloat
+        let optionImageMaxWidth: CGFloat
+        let optionSpacing: CGFloat
+        let columnSpacing: CGFloat
+        let horizontalPadding: CGFloat
+        let optionContentPadding: CGFloat
+    }
+
+    private func ipadLandscapeLayout(size: CGSize) -> IPadLandscapeLayout {
+        let mainImageSize = min(max(size.height * 0.58, 280), 430)
+        let sideColumnWidth = min(max(size.width * 0.36, 360), 560)
+        let optionButtonHeight = min(max(size.height * 0.18, 120), 180)
+        let optionImageHeight = optionButtonHeight * 0.92
+        let optionImageMaxWidth = sideColumnWidth * 0.78
+        let optionSpacing = min(max(size.height * 0.04, 18), 34)
+        let columnSpacing = min(max(size.width * 0.04, 44), 86)
+        let horizontalPadding = min(max(size.width * 0.04, 36), 72)
+        return IPadLandscapeLayout(
+            mainImageSize: mainImageSize,
+            sideColumnWidth: sideColumnWidth,
+            optionButtonHeight: optionButtonHeight,
+            optionImageHeight: optionImageHeight,
+            optionImageMaxWidth: optionImageMaxWidth,
+            optionSpacing: optionSpacing,
+            columnSpacing: columnSpacing,
+            horizontalPadding: horizontalPadding,
+            optionContentPadding: 4
+        )
+    }
+
+    @ViewBuilder
+    private func ipadGameLayout(outerGeo: GeometryProxy) -> some View {
+        let size = outerGeo.size
+        let isLandscape = size.width > size.height
+        let isPadLandscape = isPad && isLandscape
+
+        if isPadLandscape {
+            let layout = ipadLandscapeLayout(size: size)
+
+            HStack(spacing: layout.columnSpacing) {
+                animalImage(size: layout.mainImageSize)
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                VStack(spacing: layout.optionSpacing) {
+                    ForEach(currentQuestion.options) { option in
+                        ipadAnswerBubble(
+                            option: option,
+                            buttonWidth: layout.sideColumnWidth,
+                            buttonHeight: layout.optionButtonHeight,
+                            imageHeight: layout.optionImageHeight,
+                            optionImageMaxWidth: layout.optionImageMaxWidth,
+                            contentPadding: layout.optionContentPadding
+                        )
+                        .anchorPreference(key: AnswerAnchorKey.self, value: .bounds) { anchor in
+                            [option.id: anchor]
+                        }
+                    }
+                }
+                .frame(width: layout.sideColumnWidth, alignment: .center)
+            }
+            .padding(.horizontal, layout.horizontalPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        } else {
+            ipadDefaultGameLayout
+        }
+    }
+
+    private var ipadDefaultGameLayout: some View {
         HStack(spacing: 80) {
             VStack {
                 Image(currentQuestion.animal.imageName)
@@ -449,14 +521,26 @@ struct AnimalGameView: View {
         .contentShape(Rectangle())
     }
 
-    private func ipadAnswerBubble(option: FoodOption) -> some View {
-        ZStack {
+    private func ipadAnswerBubble(
+        option: FoodOption,
+        buttonWidth: CGFloat = 140,
+        buttonHeight: CGFloat = 110,
+        imageHeight: CGFloat = 90,
+        optionImageMaxWidth: CGFloat? = nil,
+        contentPadding: CGFloat = 20
+    ) -> some View {
+        let resolvedMaxWidth = optionImageMaxWidth ?? .infinity
+
+        return ZStack {
             Image(option.imageName)
                 .resizable()
                 .scaledToFit()
-                .frame(height: 90)
-                .padding(.horizontal, 20)
+                .frame(maxWidth: resolvedMaxWidth, maxHeight: imageHeight)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, contentPadding)
+                .padding(.vertical, 2)
         }
+        .frame(width: buttonWidth, height: buttonHeight)
         .background(Color.blue.opacity(0.2))
         .cornerRadius(16)
         .overlay(
