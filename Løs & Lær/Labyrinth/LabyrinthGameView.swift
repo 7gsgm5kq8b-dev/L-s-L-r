@@ -1244,9 +1244,13 @@ struct LabyrinthGameView: View {
 
     // MARK: - Rivers
     func drawRivers(scaleX: CGFloat, scaleY: CGFloat, objectScale: CGFloat) -> some View {
-        ZStack {
+        let allSegments = labyrinth.mainRiver.segments + labyrinth.sideRivers.flatMap(\.segments)
+        let junctions = junctionCenters(for: allSegments, scaleX: scaleX, scaleY: scaleY)
+
+        return ZStack {
             drawRiver(labyrinth.mainRiver.segments, scaleX: scaleX, scaleY: scaleY, objectScale: objectScale)
             drawAllSideRivers(scaleX: scaleX, scaleY: scaleY, objectScale: objectScale)
+            drawJunctionBasins(junctions: junctions, objectScale: objectScale)
         }
     }
 
@@ -1256,39 +1260,141 @@ struct LabyrinthGameView: View {
         scaleY: CGFloat,
         objectScale: CGFloat
     ) -> some View {
-        Path { path in
-            for segment in curves {
-                let s = CGPoint(x: segment.start.x * scaleX, y: segment.start.y * scaleY)
-                let c = CGPoint(x: segment.control.x * scaleX, y: segment.control.y * scaleY)
-                let e = CGPoint(x: segment.end.x * scaleX, y: segment.end.y * scaleY)
-                path.move(to: s)
-                path.addQuadCurve(to: e, control: c)
-            }
-        }
-        .stroke(
-            Color.blue.opacity(0.95),
-            style: StrokeStyle(lineWidth: 30 * objectScale, lineCap: .round)
-        )
-        .shadow(color: Color.cyan.opacity(0.6), radius: 3 * objectScale)
-    }
-
-    func drawAllSideRivers(scaleX: CGFloat, scaleY: CGFloat, objectScale: CGFloat) -> some View {
-        Path { path in
-            for river in labyrinth.sideRivers {
-                for segment in river.segments {
-                    let s = CGPoint(x: segment.start.x * scaleX, y: segment.start.y * scaleY)
+        let riverPath = Path { path in
+            if let first = curves.first {
+                path.move(to: CGPoint(x: first.start.x * scaleX, y: first.start.y * scaleY))
+                for segment in curves {
                     let c = CGPoint(x: segment.control.x * scaleX, y: segment.control.y * scaleY)
                     let e = CGPoint(x: segment.end.x * scaleX, y: segment.end.y * scaleY)
-                    path.move(to: s)
                     path.addQuadCurve(to: e, control: c)
                 }
             }
         }
-        .stroke(
-            Color.blue.opacity(0.95),
-            style: StrokeStyle(lineWidth: 30 * objectScale, lineCap: .round)
-        )
-        .shadow(color: Color.cyan.opacity(0.6), radius: 3 * objectScale)
+
+        return drawWaterCorridor(path: riverPath, objectScale: objectScale)
+    }
+
+    func drawAllSideRivers(scaleX: CGFloat, scaleY: CGFloat, objectScale: CGFloat) -> some View {
+        let sideRiverPath = Path { path in
+            for river in labyrinth.sideRivers {
+                if let first = river.segments.first {
+                    path.move(to: CGPoint(x: first.start.x * scaleX, y: first.start.y * scaleY))
+                    for segment in river.segments {
+                        let c = CGPoint(x: segment.control.x * scaleX, y: segment.control.y * scaleY)
+                        let e = CGPoint(x: segment.end.x * scaleX, y: segment.end.y * scaleY)
+                        path.addQuadCurve(to: e, control: c)
+                    }
+                }
+            }
+        }
+
+        return drawWaterCorridor(path: sideRiverPath, objectScale: objectScale)
+    }
+
+    private func drawWaterCorridor(path: Path, objectScale: CGFloat) -> some View {
+        return ZStack {
+            // Soft outer jungle bank.
+            path
+                .stroke(
+                    Color(red: 0.55, green: 0.45, blue: 0.30).opacity(0.16),
+                    style: StrokeStyle(
+                        lineWidth: 42 * objectScale,
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
+                )
+
+            // Main water corridor.
+            path
+                .stroke(
+                    Color(red: 0.22, green: 0.65, blue: 0.95).opacity(0.95),
+                    style: StrokeStyle(
+                        lineWidth: 26 * objectScale,
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
+                )
+
+            // Soft water highlight.
+            path
+                .stroke(
+                    Color.white.opacity(0.14),
+                    style: StrokeStyle(
+                        lineWidth: 8 * objectScale,
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
+                )
+        }
+        .shadow(color: Color.black.opacity(0.04), radius: 0.9 * objectScale, x: 0, y: 0.6 * objectScale)
+    }
+
+    private func drawJunctionBasins(junctions: [CGPoint], objectScale: CGFloat) -> some View {
+        ZStack {
+            ForEach(junctions.indices, id: \.self) { idx in
+                let center = junctions[idx]
+
+                Circle()
+                    .fill(Color(red: 0.55, green: 0.45, blue: 0.30).opacity(0.16))
+                    .frame(width: 44 * objectScale, height: 44 * objectScale)
+                    .position(center)
+
+                Circle()
+                    .fill(Color(red: 0.22, green: 0.65, blue: 0.95).opacity(0.95))
+                    .frame(width: 30 * objectScale, height: 30 * objectScale)
+                    .position(center)
+
+                Circle()
+                    .fill(Color.white.opacity(0.12))
+                    .frame(width: 10 * objectScale, height: 10 * objectScale)
+                    .position(center)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func junctionCenters(
+        for segments: [RiverSegment],
+        scaleX: CGFloat,
+        scaleY: CGFloat
+    ) -> [CGPoint] {
+        struct JunctionBucket {
+            var count: Int
+            var sumX: CGFloat
+            var sumY: CGFloat
+        }
+
+        var buckets: [String: JunctionBucket] = [:]
+        let snap: CGFloat = 4
+
+        func add(_ point: CGPoint) {
+            let x = point.x * scaleX
+            let y = point.y * scaleY
+            let keyX = Int((x / snap).rounded())
+            let keyY = Int((y / snap).rounded())
+            let key = "\(keyX):\(keyY)"
+
+            if var bucket = buckets[key] {
+                bucket.count += 1
+                bucket.sumX += x
+                bucket.sumY += y
+                buckets[key] = bucket
+            } else {
+                buckets[key] = JunctionBucket(count: 1, sumX: x, sumY: y)
+            }
+        }
+
+        for segment in segments {
+            add(segment.start)
+            add(segment.end)
+        }
+
+        return buckets.values.compactMap { bucket in
+            // Degree 2 = normal continuation, degree 3+ = branch junction.
+            guard bucket.count >= 3 else { return nil }
+            let c = CGFloat(bucket.count)
+            return CGPoint(x: bucket.sumX / c, y: bucket.sumY / c)
+        }
     }
 
     // MARK: - Goals
