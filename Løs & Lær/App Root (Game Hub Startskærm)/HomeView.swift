@@ -75,7 +75,9 @@ struct HomeView: View {
                     DifficultyPicker(difficulty: $difficulty)
                         .padding(.top, 6)
 
-                    trialStatusPanel
+                    if shouldShowTrialStatusPanel {
+                        trialStatusPanel
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, layout.horizontalPadding)
@@ -160,22 +162,32 @@ struct HomeView: View {
         max(0, trialManager.configuredTrialPlayLimit - trialManager.freePlaysRemaining)
     }
 
+    private var shouldShowTrialStatusPanel: Bool {
+        #if DEBUG && TRIAL_DEBUG_UI
+        true
+        #else
+        !trialManager.hasUnlockedFullGame
+        #endif
+    }
+
     private var trialStatusPanel: some View {
         VStack(spacing: 8) {
-            ViewThatFits {
-                HStack(spacing: 12) {
-                    Text("Tilbage: \(trialManager.freePlaysRemaining)")
-                    Text("Spillet: \(trialPlaysUsed)")
-                    Text("Unlocked: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
+            if !trialManager.hasUnlockedFullGame {
+                ViewThatFits {
+                    HStack(spacing: 12) {
+                        Text("Tilbage: \(trialManager.freePlaysRemaining)")
+                        Text("Spillet: \(trialPlaysUsed)")
+                        Text("Unlocked: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
+                    }
+                    VStack(spacing: 4) {
+                        Text("Tilbage: \(trialManager.freePlaysRemaining)")
+                        Text("Spillet: \(trialPlaysUsed)")
+                        Text("Unlocked: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
+                    }
                 }
-                VStack(spacing: 4) {
-                    Text("Tilbage: \(trialManager.freePlaysRemaining)")
-                    Text("Spillet: \(trialPlaysUsed)")
-                    Text("Unlocked: \(trialManager.hasUnlockedFullGame ? "ja" : "nej")")
-                }
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.black.opacity(0.8))
             }
-            .font(.caption.weight(.semibold))
-            .foregroundColor(.black.opacity(0.8))
 
             #if DEBUG && TRIAL_DEBUG_UI
             debugControls

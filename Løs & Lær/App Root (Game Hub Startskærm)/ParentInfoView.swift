@@ -81,6 +81,12 @@ struct ParentInfoView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
+                        Text("🐾 Gæt et dyr")
+                            .font(.title3.bold())
+                        Text("Lyt til ledetråde og gæt hvilket dyr der gemmer sig. Træner ordforråd, logik og dyrekendskab.")
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("🎲 Mix spillene")
                             .font(.title3.bold())
                         Text("Lader barnet spille alle i tilfældig rækkefølge. En opgavebog på iPad")
