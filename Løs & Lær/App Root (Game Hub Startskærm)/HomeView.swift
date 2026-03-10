@@ -9,12 +9,16 @@ struct HomeView: View {
     let onSelectGame: (GameSelection) -> Void
 
     @EnvironmentObject private var trialManager: TrialManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showParentInfo = false
     @State private var showUnlockScreen = false
 
     var body: some View {
         GeometryReader { geo in
             let layout = homeLayout(for: geo.size.width)
+            let isIPadLandscape = UIDevice.current.userInterfaceIdiom == .pad &&
+                horizontalSizeClass == .regular &&
+                geo.size.width > geo.size.height
 
             ScrollView(.vertical) {
                 VStack(spacing: 18) {
@@ -73,7 +77,7 @@ struct HomeView: View {
                     }
 
                     DifficultyPicker(difficulty: $difficulty)
-                        .padding(.top, 6)
+                        .padding(.top, isIPadLandscape ? -18 : 6)
 
                     if shouldShowTrialStatusPanel {
                         trialStatusPanel
@@ -86,6 +90,7 @@ struct HomeView: View {
             }
             .scrollIndicators(.visible)
             .safeAreaPadding(.top, 6)
+            .safeAreaPadding(.bottom, 0)
         }
         .fullScreenCover(isPresented: $showParentInfo) {
             ParentInfoView(showParentInfo: $showParentInfo)

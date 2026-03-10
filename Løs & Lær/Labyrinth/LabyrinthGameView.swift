@@ -44,7 +44,7 @@ struct SeededGenerator: RandomNumberGenerator {
     }
 }
 
-// MARK: - Randomiseret Labyrinth (V7.1 – mindre snørklet main river, bedre side separation, 1 loop)
+// MARK: - Randomiseret Labyrinth (V9.2 – kompakt maze for alder 4-7)
 func generateRandomLabyrinth(seed: UInt64? = nil, internalDifficulty: Difficulty = .easy) -> Labyrinth {
     var rng = seed.map { SeededGenerator(seed: $0) } ?? SeededGenerator(seed: UInt64(Date().timeIntervalSince1970))
 
@@ -53,154 +53,462 @@ func generateRandomLabyrinth(seed: UInt64? = nil, internalDifficulty: Difficulty
     let bottomY: CGFloat = 1265
     let topYMin: CGFloat = 410
 
+    let mazeMinX: CGFloat = leftBound + 48
+    let mazeMaxX: CGFloat = rightBound - 48
+    let mazeMinY: CGFloat = topYMin + 55
+    let mazeMaxY: CGFloat = bottomY - 75
+
+    let cols = internalDifficulty == .hard ? 6 : 5
+    let rows = internalDifficulty == .hard ? 7 : 6
+
+    let regionWidth = mazeMaxX - mazeMinX
+    let regionHeight = mazeMaxY - mazeMinY
+    let cellStepX = regionWidth / CGFloat(cols - 1)
+    let cellStepY = regionHeight / CGFloat(rows - 1)
+
+    let minSegmentLength = max(58.0, min(cellStepX, cellStepY) * 0.68)
+    let maxSegmentLength = max(cellStepX, cellStepY) * 1.20
+
+    let maxStraightRun = internalDifficulty == .hard ? 3 : 2
+    let turnBias: CGFloat = 0.62
+    let extraDeadEndCount = internalDifficulty == .hard ? 2 : 1
+
+    struct EdgeKey: Hashable {
+        let a: Int
+        let b: Int
+
+        init(_ x: Int, _ y: Int) {
+            if x < y { a = x; b = y } else { a = y; b = x }
+        }
+    }
+
+    enum Dir: Int {
+        case up, down, left, right
+    }
+
+    struct NeighborInfo {
+        let node: Int
+        let dir: Dir
+    }
+
+    struct LeafInfo {
+        let node: Int
+        let point: CGPoint
+        let decisionDepth: Int
+        let distanceFromStart: Int
+    }
+
     func rand(_ range: ClosedRange<CGFloat>) -> CGFloat {
         CGFloat.random(in: range, using: &rng)
     }
 
-    // MARK: 1) MAIN RIVER – flere punkter, mindre zig-zag
-    let start = CGPoint(x: (leftBound + rightBound) / 2, y: bottomY)
-    var nodes: [CGPoint] = [start]
-
-    let segmentsCount = 12  // flere punkter → glattere flod
-    var currentY = start.y
-    var lastX = start.x
-
-    for _ in 1...segmentsCount {
-        let stepY = rand(70...95)  // mindre vertikale spring
-        currentY -= stepY
-        if currentY < topYMin { currentY = topYMin }
-
-        // retningstræghed: små x-jitter
-        let xJitter = rand(-60...60)
-        let nextX = min(max(leftBound, lastX + xJitter), rightBound)
-        lastX = nextX
-
-        nodes.append(CGPoint(x: nextX, y: currentY))
+    func clamp(_ value: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
+        min(max(value, range.lowerBound), range.upperBound)
     }
 
-    // Blødere kontrolpunkter
-    var mainSegments: [RiverSegment] = []
-    for i in 0..<(nodes.count - 1) {
-        let s = nodes[i]
-        let e = nodes[i + 1]
-        let mid = CGPoint(x: (s.x + e.x) / 2, y: (s.y + e.y) / 2)
+    func distance(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
+        hypot(p1.x - p2.x, p1.y - p2.y)
+    }
 
-        let perpOffset = rand(-35...35)  // mindre offset → mindre snørklet
-        let control = CGPoint(
-            x: min(max(leftBound, mid.x + perpOffset), rightBound),
-            y: mid.y + rand(-15...15)
+    func uniquePoints(_ input: [CGPoint], minDistance: CGFloat) -> [CGPoint] {
+        var result: [CGPoint] = []
+        for point in input {
+            if result.allSatisfy({ distance($0, point) >= minDistance }) {
+                result.append(point)
+            }
+        }
+        return result
+    }
+
+    func gridIndex(row: Int, col: Int) -> Int {
+        row * cols + col
+    }
+
+    func gridRowCol(for index: Int) -> (row: Int, col: Int) {
+        (index / cols, index % cols)
+    }
+
+    // MARK: 1) Node field across bounded maze region
+    var points: [CGPoint] = Array(repeating: .zero, count: rows * cols)
+    let jitterX = cellStepX * 0.10
+    let jitterY = cellStepY * 0.10
+
+    for row in 0..<rows {
+        for col in 0..<cols {
+            let idx = gridIndex(row: row, col: col)
+            let baseX = mazeMinX + CGFloat(col) * cellStepX
+            let baseY = mazeMinY + CGFloat(row) * cellStepY
+
+            let jx = (col == 0 || col == cols - 1) ? 0 : rand(-jitterX...jitterX)
+            let jy = (row == 0 || row == rows - 1) ? 0 : rand(-jitterY...jitterY)
+
+            points[idx] = CGPoint(
+                x: clamp(baseX + jx, to: mazeMinX...mazeMaxX),
+                y: clamp(baseY + jy, to: mazeMinY...mazeMaxY)
+            )
+        }
+    }
+
+    let startCol = cols / 2
+    let startNode = gridIndex(row: rows - 1, col: startCol)
+    points[startNode] = CGPoint(x: mazeMinX + CGFloat(startCol) * cellStepX, y: mazeMaxY)
+
+    func gridNeighbors(of node: Int) -> [NeighborInfo] {
+        let rc = gridRowCol(for: node)
+        var neighbors: [NeighborInfo] = []
+
+        if rc.row > 0 { neighbors.append(NeighborInfo(node: gridIndex(row: rc.row - 1, col: rc.col), dir: .up)) }
+        if rc.row < rows - 1 { neighbors.append(NeighborInfo(node: gridIndex(row: rc.row + 1, col: rc.col), dir: .down)) }
+        if rc.col > 0 { neighbors.append(NeighborInfo(node: gridIndex(row: rc.row, col: rc.col - 1), dir: .left)) }
+        if rc.col < cols - 1 { neighbors.append(NeighborInfo(node: gridIndex(row: rc.row, col: rc.col + 1), dir: .right)) }
+
+        neighbors.shuffle(using: &rng)
+        return neighbors
+    }
+
+    // MARK: 2) Recursive backtracker with straight-run limiter
+    var visited: Set<Int> = [startNode]
+    var stack: [Int] = [startNode]
+    var parent: [Int: Int] = [:]
+    var dirFromParent: [Int: Dir] = [:]
+    var straightRun: [Int: Int] = [startNode: 0]
+    var edges: [EdgeKey] = []
+
+    while let current = stack.last {
+        var options = gridNeighbors(of: current).filter { !visited.contains($0.node) }
+
+        if options.isEmpty {
+            stack.removeLast()
+            continue
+        }
+
+        let prevDir = dirFromParent[current]
+        let prevRun = straightRun[current] ?? 0
+
+        if let prevDir {
+            if prevRun >= maxStraightRun {
+                let turned = options.filter { $0.dir != prevDir }
+                if !turned.isEmpty {
+                    options = turned
+                }
+            } else if rand(0...1) < turnBias {
+                let turned = options.filter { $0.dir != prevDir }
+                if !turned.isEmpty {
+                    options = turned
+                }
+            }
+        }
+
+        guard let chosen = options.randomElement(using: &rng) else {
+            stack.removeLast()
+            continue
+        }
+
+        visited.insert(chosen.node)
+        parent[chosen.node] = current
+        dirFromParent[chosen.node] = chosen.dir
+        straightRun[chosen.node] = (prevDir == chosen.dir) ? (prevRun + 1) : 1
+
+        edges.append(EdgeKey(current, chosen.node))
+        stack.append(chosen.node)
+    }
+
+    func adjacency(from edgeList: [EdgeKey], nodeCount: Int) -> [Int: Set<Int>] {
+        var adj: [Int: Set<Int>] = [:]
+        for node in 0..<nodeCount { adj[node] = [] }
+        for edge in edgeList {
+            adj[edge.a, default: []].insert(edge.b)
+            adj[edge.b, default: []].insert(edge.a)
+        }
+        return adj
+    }
+
+    var adj = adjacency(from: edges, nodeCount: points.count)
+
+    func leafNodes(in graph: [Int: Set<Int>]) -> [Int] {
+        graph.keys.filter { node in
+            node != startNode && (graph[node]?.count ?? 0) == 1
+        }
+    }
+
+    // MARK: 3) Add short internal dead-end stubs
+    var usedDeadEndAnchors: Set<Int> = []
+    var deadEndAdded = 0
+    var deadEndAttempts = 0
+
+    while deadEndAdded < extraDeadEndCount && deadEndAttempts < 24 {
+        let anchors = adj.keys.filter { node in
+            let degree = adj[node]?.count ?? 0
+            return degree >= 2 && degree <= 3 && node != startNode && !usedDeadEndAnchors.contains(node)
+        }
+
+        guard let anchor = anchors.randomElement(using: &rng) else { break }
+        usedDeadEndAnchors.insert(anchor)
+        deadEndAttempts += 1
+
+        let anchorPoint = points[anchor]
+        let outward: CGFloat = anchorPoint.x >= points[startNode].x ? 1 : -1
+        let branchLen = min(cellStepX, cellStepY) * rand(0.55...0.82)
+
+        let candidateDirs: [CGPoint] = [
+            CGPoint(x: outward, y: -0.45),
+            CGPoint(x: outward, y: 0),
+            CGPoint(x: -outward, y: -0.45),
+            CGPoint(x: 0, y: -1)
+        ]
+
+        var added = false
+        for dir in candidateDirs.shuffled(using: &rng) {
+            let np = CGPoint(
+                x: clamp(anchorPoint.x + dir.x * branchLen, to: mazeMinX...mazeMaxX),
+                y: clamp(anchorPoint.y + dir.y * branchLen, to: mazeMinY...mazeMaxY)
+            )
+
+            if distance(anchorPoint, np) < minSegmentLength * 0.72 { continue }
+            if points.contains(where: { distance($0, np) < minSegmentLength * 0.50 }) { continue }
+
+            let newNode = points.count
+            points.append(np)
+            edges.append(EdgeKey(anchor, newNode))
+            adj[anchor, default: []].insert(newNode)
+            adj[newNode, default: []].insert(anchor)
+
+            deadEndAdded += 1
+            added = true
+            break
+        }
+
+        if !added { continue }
+    }
+
+    // If still too few leaves, add emergency stubs
+    var emergency = 0
+    while leafNodes(in: adj).count < 3 && emergency < 8 {
+        let anchors = adj.keys.filter { (adj[$0]?.count ?? 0) >= 2 && $0 != startNode }
+        guard let anchor = anchors.randomElement(using: &rng) else { break }
+
+        let ap = points[anchor]
+        let dir: CGFloat = ap.x >= points[startNode].x ? 1 : -1
+        let np = CGPoint(
+            x: clamp(ap.x + dir * minSegmentLength * 0.75, to: mazeMinX...mazeMaxX),
+            y: clamp(ap.y - minSegmentLength * 0.62, to: mazeMinY...mazeMaxY)
         )
 
-        mainSegments.append(RiverSegment(start: s, control: control, end: e))
-    }
-
-    // MARK: 2) SIDE RIVERS – større separation i X og Y
-    var sideRivers: [River] = []
-    let desiredBranches = 3  // 3 side rivers er nok og giver plads
-
-    var candidateIndices = Array(2..<(nodes.count - 3))
-    candidateIndices.shuffle(using: &rng)
-
-    var chosen: [Int] = []
-    let minXSep: CGFloat = 150
-    let minYSep: CGFloat = 150
-
-    for idx in candidateIndices {
-        let p = nodes[idx]
-        var ok = true
-
-        for c in chosen {
-            let cp = nodes[c]
-            if abs(cp.x - p.x) < minXSep { ok = false; break }
-            if abs(cp.y - p.y) < minYSep { ok = false; break }
+        if points.contains(where: { distance($0, np) < minSegmentLength * 0.45 }) {
+            emergency += 1
+            continue
         }
 
-        if ok {
-            chosen.append(idx)
-            if chosen.count == desiredBranches { break }
+        let newNode = points.count
+        points.append(np)
+        edges.append(EdgeKey(anchor, newNode))
+        adj[anchor, default: []].insert(newNode)
+        adj[newNode, default: []].insert(anchor)
+        emergency += 1
+    }
+
+    // Rebuild parent/depth on final graph
+    func bfsParents(from start: Int, graph: [Int: Set<Int>]) -> (dist: [Int: Int], parent: [Int: Int]) {
+        var dist: [Int: Int] = [start: 0]
+        var parent: [Int: Int] = [:]
+        var queue: [Int] = [start]
+
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            let base = dist[current] ?? 0
+            for next in graph[current] ?? [] where dist[next] == nil {
+                dist[next] = base + 1
+                parent[next] = current
+                queue.append(next)
+            }
+        }
+
+        return (dist, parent)
+    }
+
+    let bfs = bfsParents(from: startNode, graph: adj)
+    let distFromStart = bfs.dist
+    let finalParent = bfs.parent
+
+    func decisionDepth(of node: Int) -> Int {
+        var depth = 0
+        var current = node
+
+        while let p = finalParent[current] {
+            if p != startNode, (adj[p]?.count ?? 0) >= 3 {
+                depth += 1
+            }
+            current = p
+        }
+
+        return depth
+    }
+
+    let leaves = leafNodes(in: adj).map { node in
+        LeafInfo(
+            node: node,
+            point: points[node],
+            decisionDepth: decisionDepth(of: node),
+            distanceFromStart: distFromStart[node] ?? 0
+        )
+    }
+
+    // MARK: 4) Build mainRiver path from start to farthest endpoint
+    let farthestNode = (distFromStart.max { $0.value < $1.value }?.key) ?? startNode
+
+    var mainPathNodes: [Int] = [farthestNode]
+    var walk = farthestNode
+    while let p = finalParent[walk] {
+        mainPathNodes.append(p)
+        walk = p
+    }
+    mainPathNodes.reverse()
+
+    let mainPathEdgeSet = Set(zip(mainPathNodes, mainPathNodes.dropFirst()).map { EdgeKey($0.0, $0.1) })
+
+    func controlPoint(from a: CGPoint, to b: CGPoint, intensity: CGFloat) -> CGPoint {
+        let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        let len = max(1, hypot(dx, dy))
+        let nx = -dy / len
+        let ny = dx / len
+        let offset = rand(-intensity...intensity)
+
+        return CGPoint(
+            x: clamp(mid.x + nx * offset, to: mazeMinX...mazeMaxX),
+            y: clamp(mid.y + ny * offset + rand(-5...5), to: mazeMinY...mazeMaxY)
+        )
+    }
+
+    func appendSegmentPieces(from a: CGPoint, to b: CGPoint, jitter: CGFloat, into segments: inout [RiverSegment]) {
+        let total = distance(a, b)
+        let splitsByMax = max(1, Int(ceil(total / maxSegmentLength)))
+        let maxSplitsByMin = max(1, Int(floor(total / minSegmentLength)))
+        let splitCount = max(1, min(splitsByMax, maxSplitsByMin))
+
+        var prev = a
+        for i in 1...splitCount {
+            let t = CGFloat(i) / CGFloat(splitCount)
+            var next = CGPoint(
+                x: a.x + (b.x - a.x) * t,
+                y: a.y + (b.y - a.y) * t
+            )
+
+            if i < splitCount {
+                let dx = b.x - a.x
+                let dy = b.y - a.y
+                let len = max(1, hypot(dx, dy))
+                let nx = -dy / len
+                let ny = dx / len
+                let wobble = rand(-8...8)
+                next.x = clamp(next.x + nx * wobble, to: mazeMinX...mazeMaxX)
+                next.y = clamp(next.y + ny * wobble + rand(-4...4), to: mazeMinY...mazeMaxY)
+            }
+
+            segments.append(RiverSegment(start: prev, control: controlPoint(from: prev, to: next, intensity: jitter), end: next))
+            prev = next
         }
     }
 
-    // Generér side rivers
-    var sideEnds: [CGPoint] = []
-
-    for idx in chosen {
-        let start = nodes[idx]
-        let branchLen = Int.random(in: 2...3, using: &rng)
-
-        var prev = start
+    func segmentsFromNodePath(_ nodePath: [Int], jitter: CGFloat) -> [RiverSegment] {
+        guard nodePath.count >= 2 else { return [] }
         var segments: [RiverSegment] = []
+        for (fromNode, toNode) in zip(nodePath, nodePath.dropFirst()) {
+            appendSegmentPieces(from: points[fromNode], to: points[toNode], jitter: jitter, into: &segments)
+        }
+        return segments
+    }
 
-        // retning baseret på placering
-        var direction: CGFloat = start.x > (leftBound + rightBound)/2 ? -1 : 1
+    let mainSegments = segmentsFromNodePath(mainPathNodes, jitter: 10)
 
-        for _ in 0..<branchLen {
-            var end: CGPoint
-            var attempt = 0
+    // MARK: 5) Convert remaining maze edges to side rivers
+    let mainPathNodeSet = Set(mainPathNodes)
+    var consumedNonMainEdges: Set<EdgeKey> = []
+    var sideRivers: [River] = []
 
-            repeat {
-                let dx = rand(90...150) * direction
-                let dy = rand(80...150)
+    let chainStartCandidates = adj.keys.sorted().filter { node in
+        mainPathNodeSet.contains(node) || (adj[node]?.count ?? 0) != 2
+    }
 
-                let endX = min(max(leftBound, prev.x + dx), rightBound)
-                let endY = min(max(topYMin, prev.y - dy), bottomY - 40)
+    for chainStart in chainStartCandidates {
+        for neighbor in adj[chainStart] ?? [] {
+            let firstEdge = EdgeKey(chainStart, neighbor)
+            if mainPathEdgeSet.contains(firstEdge) || consumedNonMainEdges.contains(firstEdge) {
+                continue
+            }
 
-                end = CGPoint(x: endX, y: endY)
-                attempt += 1
+            var chain: [Int] = [chainStart, neighbor]
+            consumedNonMainEdges.insert(firstEdge)
 
-                if sideEnds.contains(where: { hypot($0.x - end.x, $0.y - end.y) < 120 }) {
-                    direction *= -1
-                } else {
+            var prev = chainStart
+            var current = neighbor
+
+            while !mainPathNodeSet.contains(current), (adj[current]?.count ?? 0) == 2 {
+                guard let next = (adj[current] ?? []).first(where: { $0 != prev }) else { break }
+                let nextEdge = EdgeKey(current, next)
+                if mainPathEdgeSet.contains(nextEdge) || consumedNonMainEdges.contains(nextEdge) {
                     break
                 }
-            } while attempt < 6
 
-            let mid = CGPoint(x: (prev.x + end.x)/2, y: (prev.y + end.y)/2)
-            let control = CGPoint(
-                x: min(max(leftBound, mid.x + rand(-30...30)), rightBound),
-                y: mid.y + rand(-20...20)
-            )
+                chain.append(next)
+                consumedNonMainEdges.insert(nextEdge)
+                prev = current
+                current = next
+            }
 
-            segments.append(RiverSegment(start: prev, control: control, end: end))
-            prev = end
-        }
-
-        if let last = segments.last?.end { sideEnds.append(last) }
-        sideRivers.append(River(segments: segments))
-    }
-
-    // MARK: 3) LOOP – kun ét, og kun hvis der er plads
-    if let side = sideRivers.randomElement(using: &rng),
-       let sideEnd = side.segments.last?.end {
-
-        let mainCandidates = nodes.filter { abs($0.y - sideEnd.y) > 180 }
-
-        if let mainPoint = mainCandidates.randomElement(using: &rng) {
-            let mid = CGPoint(
-                x: (sideEnd.x + mainPoint.x)/2 + rand(-25...25),
-                y: (sideEnd.y + mainPoint.y)/2 + rand(-25...25)
-            )
-
-            let control = CGPoint(
-                x: min(max(leftBound, mid.x + rand(-30...30)), rightBound),
-                y: mid.y + rand(-20...20)
-            )
-
-            let loopSegment = RiverSegment(start: sideEnd, control: control, end: mainPoint)
-            sideRivers.append(River(segments: [loopSegment]))
+            let riverSegments = segmentsFromNodePath(chain, jitter: 9)
+            if !riverSegments.isEmpty {
+                sideRivers.append(River(segments: riverSegments))
+            }
         }
     }
 
-    // MARK: Goals (uændret)
-    let leftEnd = sideRivers.first?.segments.last?.end ?? mainSegments.last!.end
-    let rightEnd = sideRivers.dropFirst().first?.segments.last?.end ?? mainSegments.last!.end
-    let topEnd = mainSegments.last!.end
+    // MARK: 6) Endpoint selection (terminal endpoints, spaced, depth-aware)
+    func pickLeaves(_ candidates: [LeafInfo], count: Int, already: [CGPoint]) -> [CGPoint] {
+        var picked: [CGPoint] = []
+        let sorted = candidates.sorted { lhs, rhs in
+            if lhs.decisionDepth == rhs.decisionDepth {
+                return lhs.distanceFromStart > rhs.distanceFromStart
+            }
+            return lhs.decisionDepth > rhs.decisionDepth
+        }
 
-    let goalPositions = [
-        goalRect(from: leftEnd),
-        goalRect(from: rightEnd),
-        goalRect(from: topEnd)
-    ]
+        for leaf in sorted {
+            if picked.count >= count { break }
+            let p = leaf.point
+            if (already + picked).allSatisfy({ distance($0, p) >= 68 }) {
+                picked.append(p)
+            }
+        }
+
+        return picked
+    }
+
+    let deepLeaves = leaves.filter { $0.decisionDepth >= 2 }
+
+    var selectedGoalPoints: [CGPoint] = []
+    selectedGoalPoints += pickLeaves(deepLeaves, count: min(2, deepLeaves.count), already: selectedGoalPoints)
+
+    if selectedGoalPoints.count < 3 {
+        selectedGoalPoints += pickLeaves(leaves, count: 3 - selectedGoalPoints.count, already: selectedGoalPoints)
+    }
+
+    if selectedGoalPoints.count < 3 {
+        let fallbackLeafPoints = uniquePoints(leaves.map { $0.point }, minDistance: 52)
+        for p in fallbackLeafPoints where selectedGoalPoints.count < 3 {
+            if selectedGoalPoints.allSatisfy({ distance($0, p) >= 45 }) {
+                selectedGoalPoints.append(p)
+            }
+        }
+    }
+
+    while selectedGoalPoints.count < 3 {
+        selectedGoalPoints.append(points[farthestNode])
+    }
+
+    selectedGoalPoints = Array(selectedGoalPoints.prefix(3))
+    let goalPositions = selectedGoalPoints.map { goalRect(from: $0) }
 
     return Labyrinth(
         mainRiver: River(segments: mainSegments),
@@ -208,8 +516,6 @@ func generateRandomLabyrinth(seed: UInt64? = nil, internalDifficulty: Difficulty
         goalPositions: goalPositions
     )
 }
-
-
 // MARK: - GameMode
 enum GameMode {
     case letters
@@ -385,24 +691,117 @@ struct LabyrinthGameView: View {
         return CGRect(origin: origin, size: size)
     }
 
-    // MARK: - Helper: vælg op til `count` unikke endepunkter med en mindsteafstand
+
+    private struct GoalNodeKey: Hashable {
+        let x: Int
+        let y: Int
+    }
+
+    private func goalNodeKey(_ point: CGPoint) -> GoalNodeKey {
+        GoalNodeKey(
+            x: Int((point.x * 10).rounded()),
+            y: Int((point.y * 10).rounded())
+        )
+    }
+
+    private func goalDistance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
+        hypot(a.x - b.x, a.y - b.y)
+    }
+
+    private func uniqueGoalPoints(_ points: [CGPoint], minDistance: CGFloat) -> [CGPoint] {
+        var unique: [CGPoint] = []
+        for point in points {
+            if unique.allSatisfy({ goalDistance($0, point) >= minDistance }) {
+                unique.append(point)
+            }
+        }
+        return unique
+    }
+
+    // MARK: - Helper: vælg op til `count` endepunkter med afstand + separation
     private func pickDistinctGoalEnds(from candidates: [CGPoint], count: Int = 3, minDistance: CGFloat = 60) -> [CGPoint] {
-        var chosen: [CGPoint] = []
-        let shuffled = candidates.shuffled()
-        for p in shuffled {
-            var ok = true
-            for c in chosen {
-                let dx = p.x - c.x
-                let dy = p.y - c.y
-                if sqrt(dx*dx + dy*dy) < minDistance {
-                    ok = false
-                    break
+        guard count > 0 else { return [] }
+
+        let startPoint = labyrinth.mainRiver.segments.first?.start ?? CGPoint(x: 450, y: 1248)
+        var pool = uniqueGoalPoints(candidates, minDistance: minDistance * 0.55)
+        var selected: [CGPoint] = []
+
+        func score(_ point: CGPoint, selected: [CGPoint]) -> CGFloat {
+            let distFromStart = goalDistance(point, startPoint)
+            let separation = selected.isEmpty ? 200 : (selected.map { goalDistance(point, $0) }.min() ?? 0)
+            return distFromStart + (separation * 1.3)
+        }
+
+        while selected.count < count && !pool.isEmpty {
+            let bestIndex = pool.indices.max { lhs, rhs in
+                score(pool[lhs], selected: selected) < score(pool[rhs], selected: selected)
+            } ?? pool.startIndex
+
+            let candidate = pool.remove(at: bestIndex)
+            if selected.allSatisfy({ goalDistance($0, candidate) >= minDistance }) {
+                selected.append(candidate)
+            }
+        }
+
+        return selected
+    }
+
+    // MARK: - Helper: terminale endpoints (degree == 1), ekskl. start
+    private func terminalGoalEndpoints() -> [CGPoint] {
+        var degrees: [GoalNodeKey: Int] = [:]
+        var representativePoints: [GoalNodeKey: CGPoint] = [:]
+
+        func addEdge(_ a: CGPoint, _ b: CGPoint) {
+            let ka = goalNodeKey(a)
+            let kb = goalNodeKey(b)
+            degrees[ka, default: 0] += 1
+            degrees[kb, default: 0] += 1
+            representativePoints[ka] = a
+            representativePoints[kb] = b
+        }
+
+        for segment in labyrinth.mainRiver.segments {
+            addEdge(segment.start, segment.end)
+        }
+
+        for river in labyrinth.sideRivers {
+            for segment in river.segments {
+                addEdge(segment.start, segment.end)
+            }
+        }
+
+        let startKey = labyrinth.mainRiver.segments.first.map { goalNodeKey($0.start) }
+
+        var leaves: [CGPoint] = []
+        for (key, degree) in degrees where degree == 1 {
+            if key == startKey { continue }
+            if let p = representativePoints[key] {
+                leaves.append(p)
+            }
+        }
+
+        let deduped = uniqueGoalPoints(leaves, minDistance: 52)
+        let startPoint = labyrinth.mainRiver.segments.first?.start ?? CGPoint(x: 450, y: 1248)
+        return deduped.sorted { goalDistance($0, startPoint) > goalDistance($1, startPoint) }
+    }
+
+    // MARK: - Helper: foretrukne mål-ends (leaf-prioritet)
+    private func preferredGoalEndpoints(count: Int = 3) -> [CGPoint] {
+        var preferred = pickDistinctGoalEnds(from: terminalGoalEndpoints(), count: count, minDistance: 68)
+
+        if preferred.count < count {
+            let riverEnds: [CGPoint] = [labyrinth.mainRiver.segments.last?.end].compactMap { $0 }
+                + labyrinth.sideRivers.compactMap { $0.segments.last?.end }
+            let fallbackEnds = pickDistinctGoalEnds(from: riverEnds, count: count, minDistance: 60)
+
+            for candidate in fallbackEnds where preferred.count < count {
+                if preferred.allSatisfy({ goalDistance($0, candidate) >= 36 }) {
+                    preferred.append(candidate)
                 }
             }
-            if ok { chosen.append(p) }
-            if chosen.count == count { break }
         }
-        return chosen
+
+        return Array(preferred.prefix(count))
     }
 
     // MARK: - Helper: find nærmeste punkt på en quad bezier til et punkt (samples)
@@ -450,7 +849,6 @@ struct LabyrinthGameView: View {
         var bestPoint: CGPoint? = nil
         var bestDist = CGFloat.greatestFiniteMagnitude
 
-        // main river (skaler segmentpunkter til screen coords før beregning)
         for segment in labyrinth.mainRiver.segments {
             let s = CGPoint(x: segment.start.x * scaleX, y: segment.start.y * scaleY)
             let c = CGPoint(x: segment.control.x * scaleX, y: segment.control.y * scaleY)
@@ -462,7 +860,6 @@ struct LabyrinthGameView: View {
             }
         }
 
-        // side rivers
         for river in labyrinth.sideRivers {
             for segment in river.segments {
                 let s = CGPoint(x: segment.start.x * scaleX, y: segment.start.y * scaleY)
@@ -478,38 +875,43 @@ struct LabyrinthGameView: View {
 
         if let bp = bestPoint, bestDist <= threshold {
             return bp
-        } else {
-            return pScreen
         }
+        return pScreen
     }
-
 
     // Tegn mål direkte i screen coords (brug når vi allerede har snapped screen center)
-    func goalMarkerScreen(centerScreen: CGPoint, label: String, objectScale: CGFloat) -> some View {
-        let size = CGSize(width: 40 * objectScale, height: 40 * objectScale)
-        return ZStack {
-            Circle()
-                .fill(Color.green.opacity(0.9))
-                .frame(width: size.width, height: size.height)
-                .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 2))
-                .shadow(radius: 4)
-                .position(x: centerScreen.x, y: centerScreen.y)
+func goalMarkerScreen(centerScreen: CGPoint, label: String, objectScale: CGFloat) -> some View {
+    let markerBoost: CGFloat = isPhone ? 1.25 : 1.0
+    let labelBoost: CGFloat = isPhone ? 1.35 : 1.0
+    let minLabelSize: CGFloat = isPhone ? 15 : 0
+    let baseMarkerSize: CGFloat = isPhone ? 44 : 40
+    let size = CGSize(width: baseMarkerSize * objectScale * markerBoost,
+                      height: baseMarkerSize * objectScale * markerBoost)
+    let labelSize = max(16 * objectScale * labelBoost, minLabelSize)
 
-            Text(label)
-                .font(.system(size: 16 * objectScale, weight: .black))
-                .foregroundColor(.white)
-                .shadow(radius: 2)
-                .position(x: centerScreen.x, y: centerScreen.y)
-        }
+    return ZStack {
+        Circle()
+            .fill(Color.green.opacity(0.9))
+            .frame(width: size.width, height: size.height)
+            .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 2))
+            .shadow(radius: 4)
+            .position(x: centerScreen.x, y: centerScreen.y)
+
+        Text(label)
+            .font(.system(size: labelSize, weight: .black))
+            .minimumScaleFactor(0.7)
+            .lineLimit(1)
+            .foregroundColor(.white)
+            .shadow(radius: 2)
+            .position(x: centerScreen.x, y: centerScreen.y)
     }
+}
 
-    
     // MARK: - Helper: snap et punkt til nærmeste punkt på alle floder hvis indenfor threshold
     private func snapPointToRiver(_ p: CGPoint, threshold: CGFloat = 48) -> CGPoint {
         var bestPoint: CGPoint? = nil
         var bestDist = CGFloat.greatestFiniteMagnitude
 
-        // tjek main river
         for segment in labyrinth.mainRiver.segments {
             let res = nearestPointOnQuadCurve(start: segment.start, control: segment.control, end: segment.end, to: p, samples: 48)
             if res.distance < bestDist {
@@ -518,7 +920,6 @@ struct LabyrinthGameView: View {
             }
         }
 
-        // tjek side rivers
         for river in labyrinth.sideRivers {
             for segment in river.segments {
                 let res = nearestPointOnQuadCurve(start: segment.start, control: segment.control, end: segment.end, to: p, samples: 32)
@@ -531,57 +932,60 @@ struct LabyrinthGameView: View {
 
         if let bp = bestPoint, bestDist <= threshold {
             return bp
-        } else {
-            return p
         }
+        return p
     }
 
-    // MARK: - Helper: sikre præcis 3 synlige målrektangler (snap + centreret clamp)
+    // MARK: - Helper: sikre præcis 3 synlige målrektangler (leaf først, fallback sidst)
     private func ensureThreeGoalRects(from possibleEnds: [CGPoint]) -> [CGRect] {
-        // 1) vælg op til 3 distinkte ends (centers)
-        var ends = pickDistinctGoalEnds(from: possibleEnds, count: 3, minDistance: 60)
+        var ends = preferredGoalEndpoints(count: 3)
 
-        // 2) hvis vi mangler, brug main end + små offsets som fallback (offsets i Int)
         if ends.count < 3 {
-            if let mainEnd = labyrinth.mainRiver.segments.last?.end {
-                var offset = 0
-                while ends.count < 3 {
-                    let dx = CGFloat((offset % 2 == 0) ? -40 : 40) * CGFloat((offset / 2) + 1)
-                    let dy: CGFloat = 0
-                    let candidate = CGPoint(x: min(max(222, mainEnd.x + dx), 770),
-                                            y: min(max(410, mainEnd.y + dy), 1265))
-                    if !ends.contains(where: { abs($0.x - candidate.x) < 1 && abs($0.y - candidate.y) < 1 }) {
-                        ends.append(candidate)
-                    }
-                    offset += 1
-                    if offset > 10 { break }
+            let goalCenters = labyrinth.goalPositions.map { CGPoint(x: $0.midX, y: $0.midY) }
+            let fallbackPool = pickDistinctGoalEnds(from: possibleEnds + goalCenters, count: 3, minDistance: 56)
+
+            for candidate in fallbackPool where ends.count < 3 {
+                if ends.allSatisfy({ goalDistance($0, candidate) >= 34 }) {
+                    ends.append(candidate)
                 }
             }
         }
 
-        // 3) snap hver center til nærmeste punkt på floden (hvis tæt nok), så clamp center og lav rect centreret
-        let radius: CGFloat = 0
-        let snapThreshold: CGFloat = 48
-        var rects: [CGRect] = []
-        for e in ends {
-            let snapped = snapPointToRiver(e, threshold: snapThreshold)
-            let clampedCenter = clampGoalCenter(snapped, radius: radius)
-            let rect = goalRectCentered(at: clampedCenter, size: CGSize(width: 40, height: 40))
-            rects.append(rect)
-        }
+        // Absolut sidste fallback: ikke-leaf midtpunkter på river-segmenter
+        if ends.count < 3 {
+            let allSegments = labyrinth.mainRiver.segments + labyrinth.sideRivers.flatMap(\.segments)
+            let segmentMidpoints = allSegments.map {
+                CGPoint(x: ($0.start.x + $0.end.x) / 2, y: ($0.start.y + $0.end.y) / 2)
+            }
+            let midpointFallback = pickDistinctGoalEnds(from: segmentMidpoints, count: 3, minDistance: 50)
 
-        // 4) hvis vi stadig ikke har 3, brug main end fallback
-        if rects.count < 3 {
-            if let mainEnd = labyrinth.mainRiver.segments.last?.end {
-                let fallbackCenter = clampGoalCenter(snapPointToRiver(mainEnd, threshold: snapThreshold), radius: radius)
-                let fallbackRect = goalRectCentered(at: fallbackCenter, size: CGSize(width: 40, height: 40))
-                while rects.count < 3 { rects.append(fallbackRect) }
+            for candidate in midpointFallback where ends.count < 3 {
+                if ends.allSatisfy({ goalDistance($0, candidate) >= 30 }) {
+                    ends.append(candidate)
+                }
             }
         }
 
-        return rects
-    }
+        let radius: CGFloat = 0
+        let snapThreshold: CGFloat = 48
+        var rects: [CGRect] = []
 
+        for endPoint in ends {
+            let snapped = snapPointToRiver(endPoint, threshold: snapThreshold)
+            let clampedCenter = clampGoalCenter(snapped, radius: radius)
+            rects.append(goalRectCentered(at: clampedCenter, size: CGSize(width: isPhone ? 52 : 40, height: isPhone ? 52 : 40)))
+        }
+
+        if rects.count < 3, let mainEnd = labyrinth.mainRiver.segments.last?.end {
+            let fallbackCenter = clampGoalCenter(snapPointToRiver(mainEnd, threshold: snapThreshold), radius: radius)
+            let fallbackRect = goalRectCentered(at: fallbackCenter, size: CGSize(width: isPhone ? 52 : 40, height: isPhone ? 52 : 40))
+            while rects.count < 3 {
+                rects.append(fallbackRect)
+            }
+        }
+
+        return Array(rects.prefix(3))
+    }
     // MARK: - Body
     var body: some View {
         GeometryReader { geo in
@@ -595,7 +999,11 @@ struct LabyrinthGameView: View {
                     .clipped()
                     .ignoresSafeArea()
 
-                gameLayer(in: geo.size, scaleMultiplier: transform.scaleMultiplier)
+                gameLayer(
+                    in: geo.size,
+                    scaleMultiplier: transform.scaleMultiplier,
+                    footprintScale: transform.footprintScale
+                )
                     .offset(x: transform.offsetX, y: transform.offsetY)
 
                 uiOverlay(in: geo.size, safeTop: geo.safeAreaInsets.top)
@@ -619,19 +1027,23 @@ struct LabyrinthGameView: View {
 
     }
 
-    private func gameTransform(for size: CGSize) -> (offsetX: CGFloat, offsetY: CGFloat, scaleMultiplier: CGFloat) {
-        // Preserve current iPad tuning exactly.
-        guard isPhone else {
-            return (gameOffsetX, gameOffsetY, gameScaleMultiplier)
-        }
-
-        let isLandscape = size.width > size.height
-        if isLandscape {
-            return (-38, -58, 1.10)
-        } else {
-            return (-72, -86, 1.15)
-        }
+private func gameTransform(for size: CGSize) -> (offsetX: CGFloat, offsetY: CGFloat, scaleMultiplier: CGFloat, footprintScale: CGFloat) {
+    // Preserve current iPad tuning exactly.
+    guard isPhone else {
+        return (gameOffsetX, gameOffsetY, gameScaleMultiplier, 1.0)
     }
+
+    let isLandscape = size.width > size.height
+    let footprintScale: CGFloat = isLandscape ? 0.92 : 0.93
+    let centerX = (size.width * (1 - footprintScale)) / 2
+    let centerY = (size.height * (1 - footprintScale)) / 2
+
+    if isLandscape {
+        return (-38 + centerX, -58 + centerY, 1.10, footprintScale)
+    } else {
+        return (-72 + centerX, -86 + centerY, 1.15, footprintScale)
+    }
+}
 
     // MARK: - UI Overlay
     private func uiOverlay(in size: CGSize, safeTop: CGFloat) -> some View {
@@ -858,11 +1270,11 @@ struct LabyrinthGameView: View {
                 .foregroundColor(.yellow)
                 .shadow(color: .black.opacity(0.4), radius: 6)
                 .scaleEffect(bounce ? 1.2 : 0.9)
+                .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: bounce)
                 .onAppear {
-                    withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                        bounce = true
-                    }
+                    bounce = true
                 }
+                .onDisappear { bounce = false }
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -1143,9 +1555,9 @@ struct LabyrinthGameView: View {
     }
 
     // MARK: - Game Layer
-    private func gameLayer(in size: CGSize, scaleMultiplier: CGFloat) -> some View {
-        let scaleX = size.width / canvasWidth
-        let scaleY = size.height / canvasHeight
+    private func gameLayer(in size: CGSize, scaleMultiplier: CGFloat, footprintScale: CGFloat = 1.0) -> some View {
+        let scaleX = (size.width / canvasWidth) * footprintScale
+        let scaleY = (size.height / canvasHeight) * footprintScale
         let objectScale = min(scaleX, scaleY) * scaleMultiplier
 
         return ZStack {
@@ -1412,6 +1824,9 @@ struct LabyrinthGameView: View {
                 goalMarkerScreen(centerScreen: snappedScreen, label: String(goal.label), objectScale: objectScale)
             }
         }
+        .transaction { tx in
+            tx.animation = nil
+        }
     }
 
 
@@ -1505,7 +1920,7 @@ struct LabyrinthGameView: View {
 
     // MARK: - Collision Detection (optimeret)
     func isOnRiver(_ point: CGPoint) -> Bool {
-        let allowedDistance: CGFloat = 20
+        let allowedDistance: CGFloat = isPhone ? 24 : 20
 
         func distanceToCurve(start: CGPoint, control: CGPoint, end: CGPoint) -> CGFloat {
             let steps = 16
@@ -1581,14 +1996,7 @@ struct LabyrinthGameView: View {
 
     func startGame() {
         gameStarted = true
-        
-        // Brug difficulty senere til at styre labyrintens kompleksitet
-        labyrinth = generateRandomLabyrinth(
-            seed: nil,
-            internalDifficulty: internalDifficulty
-        )
-        
-        labyrinth = generateRandomLabyrinth()
+        labyrinth = generateRandomLabyrinth(seed: nil, internalDifficulty: internalDifficulty)
         setBoatToMainStart()
 
         // LETTER MODE
@@ -1603,12 +2011,7 @@ struct LabyrinthGameView: View {
             }
 
             guard !letters.isEmpty else { return }
-
-            let possibleGoalEnds: [CGPoint] = [
-                labyrinth.mainRiver.segments.last!.end
-            ] + labyrinth.sideRivers.compactMap { $0.segments.last?.end }
-
-            let dynamicGoalRects = ensureThreeGoalRects(from: possibleGoalEnds)
+            let dynamicGoalRects = ensureThreeGoalRects(from: preferredGoalEndpoints(count: 3))
             let shuffledPositions = dynamicGoalRects.shuffled()
 
             randomizedGoals = Array(zip(letters, shuffledPositions)).map { letter, rect in
@@ -1683,12 +2086,7 @@ struct LabyrinthGameView: View {
             let wrongStrings = wrongNumbers.map { "\($0)" }
             var allAnswers: [String] = [correctString] + wrongStrings
             allAnswers.shuffle()
-
-            let possibleGoalEnds: [CGPoint] = [
-                labyrinth.mainRiver.segments.last!.end
-            ] + labyrinth.sideRivers.compactMap { $0.segments.last?.end }
-
-            let dynamicGoalRects = ensureThreeGoalRects(from: possibleGoalEnds)
+            let dynamicGoalRects = ensureThreeGoalRects(from: preferredGoalEndpoints(count: 3))
 
             randomizedGoals = Array(zip(allAnswers, dynamicGoalRects)).map { letter, rect in
                 (label: letter, rect: rect)
@@ -2049,15 +2447,10 @@ struct LabyrinthGameView: View {
     func setupWordChoices() {
         guard let targetLetter = targetLetter else { return }
 
-        // 1. Find alle endepunkter fra main river + side rivers
-        let possibleGoalEnds: [CGPoint] = [
-            labyrinth.mainRiver.segments.last!.end
-        ] + labyrinth.sideRivers.compactMap { $0.segments.last?.end }
+        // 1) Primær placering: terminale endpoints (maze-ends)
+        let dynamicGoalRects = ensureThreeGoalRects(from: preferredGoalEndpoints(count: 3))
 
-        // 2. Lav rects ud fra disse punkter
-        let dynamicGoalRects = ensureThreeGoalRects(from: possibleGoalEnds)
-
-        // 3. Filtrér mål der ligger for tæt på båden
+        // 2) Undgå mål for tæt på båden
         let excludeCenter = lastBoatPosition ?? position
         let excludeRadius: CGFloat = 20
 
@@ -2067,36 +2460,66 @@ struct LabyrinthGameView: View {
             return sqrt(dx*dx + dy*dy) > excludeRadius
         }
 
-        // 4. Hvis vi mangler mål, generér nye mål på floderne
+        // 3) Hvis vi mangler mål: prøv flere terminale endpoints først
         if filteredRects.count < 3 {
-            let missing = 3 - filteredRects.count
-
-            var newRects: [CGRect] = []
-
-            for _ in 0..<missing {
-                // Vælg en flod (main eller side)
-                let riverPool = [labyrinth.mainRiver] + labyrinth.sideRivers
-                let river = riverPool.randomElement()!
-
-                // Generér et nyt punkt på floden
-                let p = randomPoint(on: river)
-
-                let rect = CGRect(x: p.x - 20, y: p.y - 20, width: 40, height: 40)
-
-                // Undgå overlap med båden
-                let dx = rect.midX - excludeCenter.x
-                let dy = rect.midY - excludeCenter.y
-                let dist = sqrt(dx*dx + dy*dy)
-
-                if dist > excludeRadius {
-                    newRects.append(rect)
-                }
+            let fallbackEndpointRects = preferredGoalEndpoints(count: 6).map { endPoint in
+                goalRectCentered(at: clampGoalCenter(snapPointToRiver(endPoint, threshold: 48), radius: 0), size: CGSize(width: 40, height: 40))
             }
 
-            filteredRects.append(contentsOf: newRects)
+            for rect in fallbackEndpointRects where filteredRects.count < 3 {
+                let nearBoat = goalDistance(CGPoint(x: rect.midX, y: rect.midY), excludeCenter) <= excludeRadius
+                let overlapsExisting = filteredRects.contains {
+                    goalDistance(CGPoint(x: $0.midX, y: $0.midY), CGPoint(x: rect.midX, y: rect.midY)) < 20
+                }
+                if !nearBoat && !overlapsExisting {
+                    filteredRects.append(rect)
+                }
+            }
         }
 
-        // 5. Nu har vi 3 mål — generér bogstaver
+        // 4) Sidste endpoint-fallback: kendte river-ends
+        if filteredRects.count < 3 {
+            let riverEnds: [CGPoint] = [labyrinth.mainRiver.segments.last?.end].compactMap { $0 }
+                + labyrinth.sideRivers.compactMap { $0.segments.last?.end }
+
+            for endPoint in riverEnds where filteredRects.count < 3 {
+                let snapped = clampGoalCenter(snapPointToRiver(endPoint, threshold: 48), radius: 0)
+                let rect = goalRectCentered(at: snapped, size: CGSize(width: 40, height: 40))
+                let nearBoat = goalDistance(CGPoint(x: rect.midX, y: rect.midY), excludeCenter) <= excludeRadius
+                let overlapsExisting = filteredRects.contains {
+                    goalDistance(CGPoint(x: $0.midX, y: $0.midY), CGPoint(x: rect.midX, y: rect.midY)) < 20
+                }
+                if !nearBoat && !overlapsExisting {
+                    filteredRects.append(rect)
+                }
+            }
+        }
+
+        // 5) Absolut nødfallback (kun hvis nødvendigt): midtpunkter på floden
+        if filteredRects.count < 3 {
+            let missing = 3 - filteredRects.count
+            let riverPool = [labyrinth.mainRiver] + labyrinth.sideRivers
+
+            for _ in 0..<missing {
+                guard let river = riverPool.randomElement() else { continue }
+                let point = randomPoint(on: river)
+                let rect = CGRect(x: point.x - 20, y: point.y - 20, width: 40, height: 40)
+                let nearBoat = goalDistance(CGPoint(x: rect.midX, y: rect.midY), excludeCenter) <= excludeRadius
+                if !nearBoat {
+                    filteredRects.append(rect)
+                }
+            }
+        }
+
+        if filteredRects.count < 3, let fallback = filteredRects.first ?? dynamicGoalRects.first {
+            while filteredRects.count < 3 {
+                filteredRects.append(fallback)
+            }
+        }
+
+        filteredRects = Array(filteredRects.prefix(3))
+
+        // 6) Generér labels
         var pool = availableLetters.map { String($0) }.filter { letter in
             let correct = useUppercase ? letter.uppercased() : letter.lowercased()
             return correct != targetLetter
@@ -2110,7 +2533,6 @@ struct LabyrinthGameView: View {
         var letters: [String] = [targetLetter, wrong1, wrong2]
         letters.shuffle()
 
-        // 6. Map bogstaver til mål
         randomizedGoals = Array(zip(letters, filteredRects)).map { letter, rect in
             (label: letter, rect: rect)
         }
