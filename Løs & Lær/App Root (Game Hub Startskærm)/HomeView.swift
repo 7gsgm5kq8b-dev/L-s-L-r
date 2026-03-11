@@ -19,11 +19,19 @@ struct HomeView: View {
         let id: String
         let iconName: String
         let selection: GameSelection
+        let isHighlighted: Bool
+
+        init(id: String, iconName: String, selection: GameSelection, isHighlighted: Bool = false) {
+            self.id = id
+            self.iconName = iconName
+            self.selection = selection
+            self.isHighlighted = isHighlighted
+        }
     }
 
-    // iPad specific shelf tiles (without All Games, because that is featured)
-    private var standardGameTiles: [GameTile] {
+    private var iPadCarouselTiles: [GameTile] {
         [
+            GameTile(id: "all_games", iconName: "icon_all_games", selection: .allGames, isHighlighted: true),
             GameTile(id: "labyrinth_abc", iconName: "icon_labyrinth_abc", selection: .labyrinthLetters),
             GameTile(id: "labyrinth_math", iconName: "icon_labyrinth_math", selection: .labyrinthMath),
             GameTile(id: "labyrinth_word", iconName: "icon_labyrinth_word", selection: .labyrinthWords),
@@ -81,13 +89,12 @@ struct HomeView: View {
                     .padding(.horizontal, layout.horizontalPadding)
             }
 
-            featuredAllGamesButton(layout: layout)
-                .padding(.horizontal, layout.horizontalPadding)
+            Spacer(minLength: isLandscape ? 18 : 28)
 
             iPadGamesShelfSection(layout: layout)
                 .padding(.horizontal, layout.horizontalPadding)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: isLandscape ? 18 : 28)
 
             DifficultyPicker(difficulty: $difficulty)
                 .padding(.top, 4)
@@ -198,13 +205,11 @@ struct HomeView: View {
     private struct IPadLayout {
         let horizontalPadding: CGFloat
         let sectionSpacing: CGFloat
-        let featuredSize: CGFloat
         let shelfTileSize: CGFloat
         let shelfSpacing: CGFloat
         let shelfHeight: CGFloat
         let shelfFadeWidth: CGFloat
         let shelfInnerPadding: CGFloat
-        let featuredVerticalPadding: CGFloat
         let shelfContainerVerticalPadding: CGFloat
     }
 
@@ -213,88 +218,57 @@ struct HomeView: View {
         let horizontalPadding: CGFloat = size.width > 1100 ? 24 : 20
         let sectionSpacing: CGFloat = isLandscape ? 10 : 16
 
-        let featuredSize = isLandscape ? min(max(size.width * 0.17, 190), 250) : min(max(size.width * 0.24, 210), 320)
-
         let shelfSpacing: CGFloat = isLandscape ? 14 : 14
-        let visibleSlots: CGFloat = isLandscape ? 5.6 : 4.25
+        let visibleSlots: CGFloat = isLandscape ? 5.1 : 3.95
         let rawShelfTile = (size.width - (horizontalPadding * 2) - (shelfSpacing * (visibleSlots - 1))) / visibleSlots
-        let maxShelfTile: CGFloat = isLandscape ? 178 : 210
+        let maxShelfTile: CGFloat = isLandscape ? 194 : 224
         let shelfTileSize = max(138, min(maxShelfTile, floor(rawShelfTile)))
-        let shelfHeight = shelfTileSize + (isLandscape ? 20 : 26)
+        let shelfHeight = shelfTileSize + (isLandscape ? 34 : 40)
 
         return IPadLayout(
             horizontalPadding: horizontalPadding,
             sectionSpacing: sectionSpacing,
-            featuredSize: featuredSize,
             shelfTileSize: shelfTileSize,
             shelfSpacing: shelfSpacing,
             shelfHeight: shelfHeight,
             shelfFadeWidth: 54,
             shelfInnerPadding: 6,
-            featuredVerticalPadding: isLandscape ? 4 : 10,
-            shelfContainerVerticalPadding: isLandscape ? 8 : 12
+            shelfContainerVerticalPadding: isLandscape ? 14 : 18
         )
     }
 
-    private func featuredAllGamesButton(layout: IPadLayout) -> some View {
-        Button(action: handleAllGamesTap) {
-            VStack(spacing: 6) {
-                Image("icon_all_games")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: layout.featuredSize, height: layout.featuredSize)
-                    .padding(.top, 4)
-
-                Text("Start et nyt tilfældigt spil")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.black.opacity(0.72))
-                    .padding(.bottom, 2)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, layout.featuredVerticalPadding)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.white.opacity(0.42))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.white.opacity(0.55), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 3)
-        }
-        .buttonStyle(PressScaleButtonStyle())
-        .contentShape(Rectangle())
-        .accessibilityLabel("Spil alle spil")
-    }
-
     private func iPadGamesShelfSection(layout: IPadLayout) -> some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             HStack(alignment: .center) {
-                Text("Eller vælg et spil")
+                Text("Vælg et spil")
                     .font(.title3.weight(.semibold))
                     .foregroundColor(.black.opacity(0.9))
 
                 Spacer(minLength: 8)
 
-                Text("Bladr til siden →")
-                    .font(.subheadline.weight(.semibold))
+                Text("↔")
+                    .font(.title3.weight(.bold))
                     .foregroundColor(.black.opacity(0.58))
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
+                    .padding(.vertical, 4)
                     .background(Color.white.opacity(0.45), in: Capsule())
             }
 
             ZStack(alignment: .trailing) {
                 ScrollView(.horizontal, showsIndicators: true) {
                     LazyHStack(spacing: layout.shelfSpacing) {
-                        ForEach(standardGameTiles) { tile in
-                            IconTileButton(iconName: tile.iconName, tileSize: layout.shelfTileSize) {
+                        ForEach(iPadCarouselTiles) { tile in
+                            IconTileButton(
+                                iconName: tile.iconName,
+                                tileSize: layout.shelfTileSize,
+                                isHighlighted: tile.isHighlighted
+                            ) {
                                 handleTileTap(tile)
                             }
                         }
                     }
                     .padding(.horizontal, layout.shelfInnerPadding)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 8)
                     .offset(x: carouselHintOffset)
                 }
                 .frame(maxWidth: .infinity)
@@ -509,6 +483,7 @@ private struct PressScaleButtonStyle: ButtonStyle {
 struct IconTileButton: View {
     let iconName: String
     let tileSize: CGFloat
+    var isHighlighted: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -518,6 +493,27 @@ struct IconTileButton: View {
                 .scaledToFit()
                 .frame(width: tileSize, height: tileSize)
                 .padding(4)
+                .background(highlightBackground)
+        }
+        .buttonStyle(PressScaleButtonStyle())
+    }
+
+    @ViewBuilder
+    private var highlightBackground: some View {
+        if isHighlighted {
+            RoundedRectangle(cornerRadius: tileSize * 0.16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.28), Color(red: 1.0, green: 0.94, blue: 0.70).opacity(0.42)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: tileSize * 0.16, style: .continuous)
+                        .stroke(Color.white.opacity(0.65), lineWidth: 1.2)
+                )
+                .shadow(color: Color(red: 0.98, green: 0.72, blue: 0.20).opacity(0.20), radius: 12, y: 5)
         }
     }
 }

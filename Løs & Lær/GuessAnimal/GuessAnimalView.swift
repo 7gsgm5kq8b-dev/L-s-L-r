@@ -260,7 +260,7 @@ private let pocAnimals: [GuessAnimal] = [
         ),
         GuessAnimal(
             displayName: "Bæver",
-            imageName: "animal_baever",
+            imageName: "animal_beaver",
             audioFile: "animal_baever",
             clues: ["Den bygger dæmninger i vandløb.", "Den har store flade tænder.", "Den har en bred, flad hale."],
             synonyms: ["bæver","bæveren","beaver"]
@@ -316,7 +316,7 @@ private let pocAnimals: [GuessAnimal] = [
         ),
         GuessAnimal(
             displayName: "Hyæne",
-            imageName: "animal_hyæne",
+            imageName: "animal_hyena",
             audioFile: "animal_hyæne",
             clues: ["Den har en karakteristisk latter‑lyd.", "Den lever i savanneområder.", "Den er en dygtig jæger og ådselæder."],
             synonyms: ["hyæne","hyænen"]
@@ -435,7 +435,7 @@ private let pocAnimals: [GuessAnimal] = [
         ),
         GuessAnimal(
             displayName: "Isbjørn (reserve)",
-            imageName: "animal_polar_bear_2",
+            imageName: "animal_polar_bear",
             audioFile: "animal_polar_bear",
             clues: ["Den bor på isflager og kan svømme langt.", "Den har tyk pels, der holder den varm.", "Den jager ved isens kant."],
             synonyms: ["isbjørn","polar bear"]
@@ -453,6 +453,54 @@ private struct GuessMessage: Identifiable {
     let id = UUID()
     let role: Role
     let text: String
+}
+
+private enum GuessAnimalHelpLevel: Int, Equatable {
+    case none = 0
+    case imageChoice = 1
+
+    var statusText: String {
+        switch self {
+        case .none:
+            return "Klar til næste gæt"
+        case .imageChoice:
+            return "Vælg et billede"
+        }
+    }
+
+    var badgeTitle: String {
+        switch self {
+        case .none:
+            return ""
+        case .imageChoice:
+            return "3 billeder"
+        }
+    }
+}
+
+private enum GuessAnimalRoundPhase: Equatable {
+    case idle
+    case startingRound
+    case speakingClue
+    case listening
+    case evaluating
+    case helping(GuessAnimalHelpLevel)
+    case success
+    case failure
+    case recovering
+}
+
+enum GuessAnimalListeningFinishReason: Equatable {
+    case finalResult
+    case timeout
+    case error(String)
+    case cancelled
+}
+
+struct GuessAnimalListeningOutcome {
+    let transcript: String
+    let candidates: [String]
+    let reason: GuessAnimalListeningFinishReason
 }
 
 // MARK: - Text helpers
@@ -590,13 +638,17 @@ final class DanishSpeechRecognizer: ObservableObject {
     @Published var candidates: [String] = []
     @Published var lastErrorMessage: String = ""
 
+    var debugLogging = true
+
     private let audioEngine = AVAudioEngine()
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "da-DK"))
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var stopWorkItem: DispatchWorkItem?
-    private var onWindowFinished: ((String, [String]) -> Void)?
+    private var onWindowFinished: ((GuessAnimalListeningOutcome) -> Void)?
     private var hasWindowFinished = false
+    private var latestTranscriptStorage = ""
+    private var latestCandidateStorage: [String] = []
 
     init() {
         requestAuthorization()
@@ -606,33 +658,47 @@ final class DanishSpeechRecognizer: ObservableObject {
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
             DispatchQueue.main.async {
                 self?.isAuthorized = (status == .authorized)
+                self?.log("Speech authorization status: \(status.rawValue)")
             }
         }
 
-        AVAudioSession.sharedInstance().requestRecordPermission { _ in }
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+            DispatchQueue.main.async {
+                self?.log("Record permission granted: \(granted)")
+            }
+        }
     }
 
-    func startListening(window: TimeInterval, contextualWords: [String], completion: @escaping (String, [String]) -> Void) {
+    @discardableResult
+    func startListening(window: TimeInterval, contextualWords: [String], completion: @escaping (GuessAnimalListeningOutcome) -> Void) -> Bool {
         stopListening()
 
         guard isAuthorized else {
-            lastErrorMessage = "Talegenkendelse er ikke tilladt endnu."
-            return
+            updateLastError("Talegenkendelse er ikke tilladt endnu.")
+            log("Refused to start listening because speech recognition is not authorized")
+            return false
         }
 
-        guard AVAudioSession.sharedInstance().recordPermission == .granted else {
-            lastErrorMessage = "Mikrofonen er ikke tilladt."
-            return
+        let recordPermission = AVAudioSession.sharedInstance().recordPermission
+        guard recordPermission == .granted else {
+            updateLastError(recordPermission == .denied ? "Mikrofonen er ikke tilladt." : "Mikrofonen er ikke klar endnu.")
+            log("Refused to start listening because microphone permission is \(recordPermission.rawValue)")
+            return false
         }
 
         guard let recognizer, recognizer.isAvailable else {
-            lastErrorMessage = "Talegenkendelse er ikke tilgængelig lige nu."
-            return
+            updateLastError("Talegenkendelse er ikke tilgængelig lige nu.")
+            log("Refused to start listening because recognizer is unavailable")
+            return false
         }
 
-        lastErrorMessage = ""
-        liveTranscription = ""
-        candidates = []
+        DispatchQueue.main.async {
+            self.lastErrorMessage = ""
+            self.liveTranscription = ""
+            self.candidates = []
+        }
+        latestTranscriptStorage = ""
+        latestCandidateStorage = []
         hasWindowFinished = false
         onWindowFinished = completion
 
@@ -640,18 +706,17 @@ final class DanishSpeechRecognizer: ObservableObject {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
+            log("Audio session configured for recording")
         } catch {
-            lastErrorMessage = "Kunne ikke starte mikrofonen."
-            return
+            updateLastError("Kunne ikke starte mikrofonen.")
+            log("Failed to configure audio session: \(error.localizedDescription)")
+            return false
         }
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.taskHint = .dictation
         request.contextualStrings = uniqueOrdered(contextualWords)
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
         self.request = request
 
         let inputNode = audioEngine.inputNode
@@ -664,42 +729,56 @@ final class DanishSpeechRecognizer: ObservableObject {
         audioEngine.prepare()
         do {
             try audioEngine.start()
+            log("Audio engine started")
         } catch {
-            lastErrorMessage = "Mikrofonen kunne ikke startes."
-            cleanupAudioPipeline()
-            return
+            updateLastError("Mikrofonen kunne ikke startes.")
+            log("Audio engine failed to start: \(error.localizedDescription)")
+            cleanupAudioPipeline(deactivateSession: true)
+            return false
         }
 
-        isListening = true
+        DispatchQueue.main.async {
+            self.isListening = true
+        }
+
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
 
             if let result {
-                let text = result.bestTranscription.formattedString
+                let text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
                 let segmentWords = result.bestTranscription.segments.map(\.substring)
-                let refreshed = uniqueOrdered(self.candidates + candidateGuesses(from: text) + segmentWords)
+                let refreshed = uniqueOrdered(self.latestCandidateStorage + candidateGuesses(from: text) + segmentWords)
+
+                self.latestTranscriptStorage = text
+                self.latestCandidateStorage = Array(refreshed.prefix(6))
 
                 DispatchQueue.main.async {
                     self.liveTranscription = text
-                    self.candidates = Array(refreshed.prefix(6))
+                    self.candidates = self.latestCandidateStorage
                 }
 
                 if result.isFinal {
-                    self.finishWindow()
+                    self.log("Speech recognition finished with a final result")
+                    self.finishWindow(reason: .finalResult)
                     return
                 }
             }
 
-            if error != nil {
-                self.finishWindow()
+            if let error {
+                self.updateLastError("Jeg kunne ikke høre dig tydeligt.")
+                self.log("Speech recognition error: \(error.localizedDescription)")
+                self.finishWindow(reason: .error(error.localizedDescription))
             }
         }
 
         let workItem = DispatchWorkItem { [weak self] in
-            self?.finishWindow()
+            self?.log("Speech recognition timed out")
+            self?.finishWindow(reason: .timeout)
         }
         stopWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + window, execute: workItem)
+        log("Listening window opened for \(window) seconds")
+        return true
     }
 
     func stopListening() {
@@ -708,47 +787,66 @@ final class DanishSpeechRecognizer: ObservableObject {
         stopWorkItem = nil
         onWindowFinished = nil
         if isListening || audioEngine.isRunning || task != nil || request != nil {
-            cleanupAudioPipeline()
+            log("Stopping listening without callback")
+            cleanupAudioPipeline(deactivateSession: true)
         }
     }
 
-    private func finishWindow() {
+    private func finishWindow(reason: GuessAnimalListeningFinishReason) {
         guard !hasWindowFinished else { return }
         hasWindowFinished = true
 
         stopWorkItem?.cancel()
         stopWorkItem = nil
 
-        let text = liveTranscription
-        let currentCandidates = candidates
+        let outcome = GuessAnimalListeningOutcome(
+            transcript: latestTranscriptStorage,
+            candidates: latestCandidateStorage,
+            reason: reason
+        )
         let callback = onWindowFinished
         onWindowFinished = nil
 
-        cleanupAudioPipeline()
+        cleanupAudioPipeline(deactivateSession: true)
 
         DispatchQueue.main.async {
-            callback?(text, currentCandidates)
+            callback?(outcome)
         }
     }
 
-    private func cleanupAudioPipeline() {
+    private func cleanupAudioPipeline(deactivateSession: Bool) {
         if audioEngine.isRunning {
             audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
         }
+        audioEngine.inputNode.removeTap(onBus: 0)
 
         request?.endAudio()
         task?.cancel()
         task = nil
         request = nil
 
-        if Thread.isMainThread {
-            isListening = false
-        } else {
-            DispatchQueue.main.async {
-                self.isListening = false
+        if deactivateSession {
+            do {
+                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            } catch {
+                log("Failed to deactivate audio session: \(error.localizedDescription)")
             }
         }
+
+        DispatchQueue.main.async {
+            self.isListening = false
+        }
+    }
+
+    private func updateLastError(_ message: String) {
+        DispatchQueue.main.async {
+            self.lastErrorMessage = message
+        }
+    }
+
+    private func log(_ message: String) {
+        guard debugLogging else { return }
+        print("[GuessAnimalSpeech] \(message)")
     }
 }
 
@@ -760,18 +858,29 @@ struct GuessAnimalView: View {
     let onExit: () -> Void
     let onBackToHub: () -> Void
 
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var animals = pocAnimals.shuffled()
     @State private var currentIndex = 0
     @State private var clueIndex = 0
     @State private var attemptsForCurrentClue = 0
+    @State private var speechRecoveryAttempts = 0
     @State private var score = 0
     @State private var messages: [GuessMessage] = []
 
+    @State private var phase: GuessAnimalRoundPhase = .idle
+    @State private var helpLevel: GuessAnimalHelpLevel = .none
+    @State private var recoveryMessage = ""
+
     @State private var showMultipleChoice = false
+    @State private var helpChoiceOptions: [Int] = []
+    @State private var shouldResumeAfterChoiceSheet = false
+    @State private var shouldResumeAfterForeground = false
     @State private var showPermissionAlert = false
     @State private var showResultOverlay = false
     @State private var resultTitle = ""
     @State private var resultSubtitle = ""
+    @State private var resultButtonTitle = "Næste dyr"
     @State private var lastRoundWasSuccess = false
     @State private var flowToken = UUID()
 
@@ -783,6 +892,7 @@ struct GuessAnimalView: View {
     @State private var latestHeardText = ""
     @State private var latestSuggestionChips: [String] = []
     @State private var hasStarted = false
+    @State private var scheduledFlowWorkItem: DispatchWorkItem?
 
     @State private var player: AVAudioPlayer?
 
@@ -801,6 +911,52 @@ struct GuessAnimalView: View {
             return recognizer.candidates
         }
         return latestSuggestionChips
+    }
+
+    private var clueCount: Int {
+        max(currentAnimal.clues.count, 1)
+    }
+
+    private var phaseStatusText: String {
+        switch phase {
+        case .idle:
+            return "Klar til at lege"
+        case .startingRound:
+            return "Finder et nyt dyr"
+        case .speakingClue:
+            return "Jeg giver en ledetråd"
+        case .listening:
+            return recognizer.isListening ? "Lytter nu (\(secondsLeft)s)" : "Gør mikrofon klar"
+        case .evaluating:
+            return "Jeg tænker over dit svar"
+        case .helping(let level):
+            return level.statusText
+        case .success:
+            return "Det var rigtigt"
+        case .failure:
+            return "Vi gør klar til næste dyr"
+        case .recovering:
+            return recoveryMessage.isEmpty ? "Vi gør klar igen" : recoveryMessage
+        }
+    }
+
+    private var statusDotColor: Color {
+        switch phase {
+        case .listening:
+            return recognizer.isListening ? .red : .orange
+        case .speakingClue, .startingRound, .evaluating, .recovering:
+            return .orange
+        case .success:
+            return .green
+        case .failure:
+            return .pink
+        default:
+            return .gray.opacity(0.35)
+        }
+    }
+
+    private var helpButtonTitle: String {
+        "Få hjælp"
     }
 
     var body: some View {
@@ -830,22 +986,26 @@ struct GuessAnimalView: View {
                     .zIndex(10)
             }
         }
-        .sheet(isPresented: $showMultipleChoice) {
-            MultipleChoiceView(animals: animals, correctIndex: currentIndex) { selected in
+        .sheet(isPresented: $showMultipleChoice, onDismiss: handleMultipleChoiceDismiss) {
+            MultipleChoiceView(animals: animals, optionIndices: helpChoiceOptions) { selected in
+                shouldResumeAfterChoiceSheet = false
                 showMultipleChoice = false
                 evaluateImageGuess(selectedIndex: selected)
             }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .alert(isPresented: $showPermissionAlert) {
             Alert(
                 title: Text("Mikrofon mangler"),
-                message: Text("Giv adgang til mikrofon og talegenkendelse i Indstillinger for at spille med stemme."),
+                message: Text("Giv adgang til mikrofon og talegenkendelse i Indstillinger for at spille med stemme. Du kan stadig bruge Hjælp og vælge med billeder."),
                 dismissButton: .default(Text("OK"))
             )
         }
         .onAppear {
             if !hasStarted {
                 hasStarted = true
+                recognizer.debugLogging = true
                 startRound(showIntro: true)
             }
         }
@@ -858,6 +1018,9 @@ struct GuessAnimalView: View {
             } else {
                 stopListeningFeedback()
             }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            handleScenePhaseChange(newPhase)
         }
     }
 
@@ -885,6 +1048,7 @@ struct GuessAnimalView: View {
                     .background(Color.white.opacity(0.72))
                     .clipShape(Circle())
             }
+            .disabled(showResultOverlay)
 
             Spacer()
         }
@@ -899,7 +1063,7 @@ struct GuessAnimalView: View {
             RoundedRectangle(cornerRadius: 18)
                 .fill(Color.white.opacity(0.8))
 
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 if showResultOverlay {
                     Image(currentAnimal.imageName)
                         .resizable()
@@ -913,7 +1077,7 @@ struct GuessAnimalView: View {
                 }
 
                 HStack(spacing: 6) {
-                    ForEach(0..<3, id: \.self) { index in
+                    ForEach(0..<clueCount, id: \.self) { index in
                         Capsule()
                             .fill(index <= clueIndex ? Color.orange : Color.gray.opacity(0.3))
                             .frame(height: 7)
@@ -928,9 +1092,22 @@ struct GuessAnimalView: View {
 
     private var conversationCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Samtale")
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(.black.opacity(0.7))
+            HStack {
+                Text("Samtale")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.black.opacity(0.7))
+
+                Spacer()
+
+                if helpLevel != .none {
+                    Text(helpLevel.badgeTitle)
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.orange.opacity(0.18))
+                        .clipShape(Capsule())
+                }
+            }
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -989,14 +1166,21 @@ struct GuessAnimalView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Circle()
-                    .fill(recognizer.isListening ? Color.red : Color.gray.opacity(0.35))
+                    .fill(statusDotColor)
                     .frame(width: 11, height: 11)
-                Text(recognizer.isListening ? "Lytter nu (\(secondsLeft)s)" : "Klar til næste gæt")
+
+                Text(showMultipleChoice ? "Vælg et billede" : phaseStatusText)
                     .font(.subheadline.weight(.medium))
             }
 
             ProgressView(value: listeningProgress, total: 1.0)
-                .tint(.red)
+                .tint(recognizer.isListening ? .red : .orange)
+
+            if !recognizer.lastErrorMessage.isEmpty && !recognizer.isListening {
+                Text(recognizer.lastErrorMessage)
+                    .font(.caption)
+                    .foregroundColor(.red.opacity(0.8))
+            }
 
             if !recognizer.liveTranscription.isEmpty {
                 Text("Jeg hører: \(recognizer.liveTranscription)")
@@ -1006,6 +1190,10 @@ struct GuessAnimalView: View {
                 Text("Sidste gæt: \(latestHeardText)")
                     .font(.caption)
                     .foregroundColor(.black.opacity(0.72))
+            } else {
+                Text("Lyt til ledetråden og sig dyret højt. Du kan også trykke på Hjælp mig for 3 billeder.")
+                    .font(.caption)
+                    .foregroundColor(.black.opacity(0.66))
             }
 
             if !visibleChips.isEmpty {
@@ -1031,9 +1219,7 @@ struct GuessAnimalView: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            Button(action: {
-                manualListenTap()
-            }) {
+            Button(action: manualListenTap) {
                 Label(recognizer.isListening ? "Lytter..." : "Tal nu", systemImage: "mic.fill")
                     .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
@@ -1044,16 +1230,25 @@ struct GuessAnimalView: View {
             }
             .disabled(showResultOverlay || recognizer.isListening)
 
-            Button(action: {
-                showMultipleChoice = true
-            }) {
-                Label("Vis billeder", systemImage: "photo.on.rectangle.angled")
-                    .font(.subheadline.weight(.semibold))
+            Button(action: useHelp) {
+                Label(helpButtonTitle, systemImage: "sparkles")
+                    .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color.blue.opacity(0.16))
+                    .padding(.vertical, 17)
+                    .background(
+                        LinearGradient(
+                            colors: [Color(red: 1.0, green: 0.84, blue: 0.38), Color(red: 1.0, green: 0.60, blue: 0.42)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18)
+                            .stroke(Color.white.opacity(0.62), lineWidth: 1.8)
+                    )
                     .foregroundColor(.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: Color(red: 0.95, green: 0.60, blue: 0.30).opacity(0.28), radius: 8, y: 4)
             }
             .disabled(showResultOverlay)
         }
@@ -1094,7 +1289,7 @@ struct GuessAnimalView: View {
                     .foregroundColor(.black)
                     .multilineTextAlignment(.center)
 
-                Button(lastRoundWasSuccess ? "Prøv igen" : "Næste dyr") {
+                Button(resultButtonTitle) {
                     showResultOverlay = false
                     if startImmediately {
                         teardown()
@@ -1130,102 +1325,167 @@ struct GuessAnimalView: View {
     // MARK: - Game flow
 
     private func startRound(showIntro: Bool = false) {
+        log("Starting round for \(currentAnimal.displayName)")
+        invalidateFlowToken()
         recognizer.stopListening()
         stopListeningFeedback()
         stopAudioPlayback()
-        invalidateFlowToken()
 
         clueIndex = 0
         attemptsForCurrentClue = 0
+        speechRecoveryAttempts = 0
+        helpLevel = .none
+        helpChoiceOptions = []
+        shouldResumeAfterChoiceSheet = false
+        shouldResumeAfterForeground = false
         lastRoundWasSuccess = false
         latestHeardText = ""
         latestSuggestionChips = []
         showResultOverlay = false
+        showMultipleChoice = false
+        recoveryMessage = ""
+
+        transition(to: .startingRound, reason: "round reset complete")
 
         if showIntro {
             appendMessage(role: .system, text: "Jeg giver en ledetråd, og mikrofonen åbner i \(Int(listeningWindow)) sekunder. Sig dyret højt.")
         }
+        appendMessage(role: .system, text: "Nyt dyr. Lyt godt efter.")
 
-        runClueStep()
+        scheduleFlow(after: 0.2) {
+            runClueStep(source: "round start")
+        }
     }
 
-    private func runClueStep() {
+    private func runClueStep(source: String) {
         guard !showResultOverlay else { return }
-        let clue = currentAnimal.clues[clueIndex]
+
+        recognizer.stopListening()
+        stopListeningFeedback()
+        stopAudioPlayback()
+
+        let safeIndex = min(max(clueIndex, 0), clueCount - 1)
+        if safeIndex != clueIndex {
+            clueIndex = safeIndex
+        }
+
+        let clue = clueText(at: clueIndex)
+        transition(to: .speakingClue, reason: source)
         appendMessage(role: .host, text: "Ledetråd \(clueIndex + 1): \(clue)")
 
         let token = flowToken
         speakClue(at: clueIndex) {
             guard token == flowToken else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            scheduleFlow(after: 0.2) {
                 guard token == flowToken else { return }
-                openListeningWindow()
+                openListeningWindow(trigger: "after clue")
             }
         }
     }
 
-    private func openListeningWindow() {
+    private func openListeningWindow(trigger: String) {
         guard !showResultOverlay else { return }
-        guard !recognizer.isListening else { return }
-
-        guard recognizer.isAuthorized else {
-            showPermissionAlert = true
-            appendMessage(role: .system, text: "Mikrofon er ikke tilladt endnu. Du kan stadig vælge via billeder.")
+        guard !showMultipleChoice else { return }
+        guard !recognizer.isListening else {
+            log("Skipped opening listening window because recognizer is already listening")
             return
         }
 
-        appendMessage(role: .system, text: "Sig dit gæt nu.")
+        guard recognizer.isAuthorized else {
+            showPermissionAlert = true
+            recoveryMessage = "Mikrofon er ikke klar"
+            transition(to: .recovering, reason: "speech authorization missing")
+            appendMessage(role: .system, text: "Mikrofon er ikke tilladt endnu. Du kan stadig bruge Hjælp og vælge via billeder.")
+            return
+        }
+
+        transition(to: .listening, reason: trigger)
+        appendMessage(role: .system, text: helpLevel == .imageChoice ? "Sig det højt eller prøv igen." : "Sig dit gæt nu.")
 
         let token = flowToken
-        let context = currentAnimal.synonyms + [currentAnimal.displayName]
-        recognizer.startListening(window: listeningWindow, contextualWords: context) { transcript, candidates in
-            guard token == flowToken else { return }
-            handleRecognitionResult(transcript: transcript, candidates: candidates)
+        let context = uniqueOrdered(currentAnimal.synonyms + [currentAnimal.displayName])
+        let started = recognizer.startListening(window: listeningWindow, contextualWords: context) { outcome in
+            guard token == flowToken else {
+                log("Ignored stale speech callback")
+                return
+            }
+            handleRecognitionResult(outcome)
+        }
+
+        if !started {
+            handleListeningStartFailure()
         }
     }
 
-    private func handleRecognitionResult(transcript: String, candidates: [String]) {
-        latestHeardText = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        latestSuggestionChips = Array(uniqueOrdered(candidates).prefix(5))
+    private func handleListeningStartFailure() {
+        recoveryMessage = "Mikrofonen driller"
+        transition(to: .recovering, reason: "listening could not start")
+        let message = recognizer.lastErrorMessage.isEmpty ? "Mikrofonen kunne ikke starte." : recognizer.lastErrorMessage
+        appendMessage(role: .system, text: "\(message) Brug Hjælp eller vælg et billede.")
+        if message.contains("Mikrofon") {
+            showPermissionAlert = true
+        }
+    }
 
-        let candidatePool = uniqueOrdered([transcript] + candidates + recognizer.candidates)
-        let matched = bestMatchedSynonym(candidates: candidatePool, synonyms: currentAnimal.synonyms)
+    private func handleRecognitionResult(_ outcome: GuessAnimalListeningOutcome) {
+        transition(to: .evaluating, reason: "received speech result")
+
+        latestHeardText = outcome.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        latestSuggestionChips = Array(uniqueOrdered(outcome.candidates).prefix(5))
 
         if !latestHeardText.isEmpty {
             appendMessage(role: .player, text: latestHeardText)
         } else if let first = latestSuggestionChips.first {
             appendMessage(role: .player, text: first)
-        } else {
-            appendMessage(role: .player, text: "...")
         }
 
+        let candidatePool = uniqueOrdered([outcome.transcript] + outcome.candidates + recognizer.candidates)
+        let matched = bestMatchedSynonym(candidates: candidatePool, synonyms: currentAnimal.synonyms + [currentAnimal.displayName])
         if matched != nil {
             finishRound(success: true)
             return
         }
 
-        let spokeSomething = !latestHeardText.isEmpty || !latestSuggestionChips.isEmpty
+        if case .cancelled = outcome.reason {
+            log("Speech window ended because it was cancelled")
+            return
+        }
+
+        if case .error(let errorText) = outcome.reason {
+            log("Speech error while evaluating answer: \(errorText)")
+            if speechRecoveryAttempts < 1 {
+                speechRecoveryAttempts += 1
+                appendMessage(role: .system, text: "Mikrofonen drillede lidt. Vi prøver samme ledetråd igen.")
+                scheduleFlow(after: 0.45) {
+                    runClueStep(source: "retry after speech failure")
+                }
+                return
+            }
+        }
+
+        handleUnmatchedAttempt(spokeSomething: !latestHeardText.isEmpty || !latestSuggestionChips.isEmpty)
+    }
+
+    private func handleUnmatchedAttempt(spokeSomething: Bool) {
         if !spokeSomething {
             attemptsForCurrentClue += 1
             if attemptsForCurrentClue < 2 {
                 appendMessage(role: .system, text: "Jeg hørte ikke noget. Prøv igen med samme ledetråd.")
-                let token = flowToken
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                    guard token == flowToken else { return }
-                    openListeningWindow()
+                scheduleFlow(after: 0.45) {
+                    openListeningWindow(trigger: "retry same clue")
                 }
                 return
             }
         }
 
         attemptsForCurrentClue = 0
-        if clueIndex < 2 {
+        speechRecoveryAttempts = 0
+
+        if clueIndex + 1 < clueCount {
             clueIndex += 1
             appendMessage(role: .host, text: "Ikke helt. Her kommer næste ledetråd.")
-            let token = flowToken
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                guard token == flowToken else { return }
-                runClueStep()
+            scheduleFlow(after: 0.45) {
+                runClueStep(source: "advance to next clue")
             }
         } else {
             finishRound(success: false)
@@ -1233,8 +1493,10 @@ struct GuessAnimalView: View {
     }
 
     private func evaluateImageGuess(selectedIndex: Int) {
+        invalidateFlowToken()
         recognizer.stopListening()
         stopListeningFeedback()
+        transition(to: .evaluating, reason: "evaluating image selection")
 
         if selectedIndex == currentIndex {
             finishRound(success: true)
@@ -1250,17 +1512,21 @@ struct GuessAnimalView: View {
         stopAudioPlayback()
 
         if success {
+            transition(to: .success, reason: "correct answer")
             lastRoundWasSuccess = true
             let points = pointsForCurrentClue()
             score += points
             resultTitle = "Rigtigt! +\(points) point"
             resultSubtitle = "Det var \(currentAnimal.displayName.lowercased())."
+            resultButtonTitle = "Næste dyr"
             appendMessage(role: .host, text: "Flot. Det var \(currentAnimal.displayName.lowercased()).")
             speakSuccessSequence()
         } else {
+            transition(to: .failure, reason: "round ended without a match")
             lastRoundWasSuccess = false
             resultTitle = "Godt forsøgt"
             resultSubtitle = "Det rigtige svar var \(currentAnimal.displayName.lowercased())."
+            resultButtonTitle = "Prøv næste dyr"
             appendMessage(role: .host, text: "Det rigtige svar var \(currentAnimal.displayName.lowercased()).")
             speakWrongSequence()
         }
@@ -1282,23 +1548,92 @@ struct GuessAnimalView: View {
 
     private func repeatCurrentClue() {
         guard !showResultOverlay else { return }
+        invalidateFlowToken()
         recognizer.stopListening()
         stopListeningFeedback()
         stopAudioPlayback()
-        appendMessage(role: .system, text: "Vi gentager ledetråden.")
-        runClueStep()
+        appendMessage(role: .system, text: "Vi tager ledetråden én gang til.")
+        scheduleFlow(after: 0.15) {
+            runClueStep(source: "repeat clue tap")
+        }
     }
 
     private func manualListenTap() {
         guard !showResultOverlay else { return }
-        if !recognizer.isAuthorized {
-            showPermissionAlert = true
-            return
-        }
+        invalidateFlowToken()
         recognizer.stopListening()
         stopListeningFeedback()
         stopAudioPlayback()
-        openListeningWindow()
+        speechRecoveryAttempts = 0
+        openListeningWindow(trigger: "manual listen tap")
+    }
+
+    private func useHelp() {
+        guard !showResultOverlay else { return }
+
+        invalidateFlowToken()
+        recognizer.stopListening()
+        stopListeningFeedback()
+        stopAudioPlayback()
+        speechRecoveryAttempts = 0
+        attemptsForCurrentClue = 0
+
+        helpLevel = .imageChoice
+        helpChoiceOptions = imageChoiceOptionIndices()
+        shouldResumeAfterChoiceSheet = true
+        transition(to: .helping(.imageChoice), reason: "help tapped")
+
+        let text = "Tryk på det rigtige dyr."
+        appendMessage(role: .system, text: text)
+        speakNarration(text, aiFile: "help_pick_the_right_animal", completion: nil)
+        showMultipleChoice = true
+    }
+
+    private func handleMultipleChoiceDismiss() {
+
+        guard shouldResumeAfterChoiceSheet, !showResultOverlay else { return }
+        shouldResumeAfterChoiceSheet = false
+        appendMessage(role: .system, text: "Vi prøver igen sammen.")
+        scheduleFlow(after: 0.25) {
+            openListeningWindow(trigger: "multiple choice dismissed")
+        }
+    }
+
+    private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        switch newPhase {
+        case .active:
+            guard shouldResumeAfterForeground, !showResultOverlay else { return }
+            shouldResumeAfterForeground = false
+            recoveryMessage = "Vi er tilbage"
+            appendMessage(role: .system, text: "Vi er tilbage. Her kommer ledetråden igen.")
+            transition(to: .recovering, reason: "app became active again")
+            scheduleFlow(after: 0.25) {
+                runClueStep(source: "resume after foreground")
+            }
+        case .inactive, .background:
+            let canResume = shouldResumeInteractiveRound
+            invalidateFlowToken()
+            recognizer.stopListening()
+            stopListeningFeedback()
+            stopAudioPlayback()
+            if canResume {
+                shouldResumeAfterForeground = true
+                recoveryMessage = "Vi holder en lille pause"
+                appendMessage(role: .system, text: "Vi holder en lille pause.")
+                transition(to: .recovering, reason: "app moved to background")
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private var shouldResumeInteractiveRound: Bool {
+        switch phase {
+        case .startingRound, .speakingClue, .listening, .evaluating, .helping:
+            return true
+        default:
+            return false
+        }
     }
 
     private func pointsForCurrentClue() -> Int {
@@ -1354,18 +1689,125 @@ struct GuessAnimalView: View {
     private func appendMessage(role: GuessMessage.Role, text: String) {
         withAnimation(.easeOut(duration: 0.18)) {
             messages.append(GuessMessage(role: role, text: text))
+            if messages.count > 18 {
+                messages.removeFirst(messages.count - 18)
+            }
+        }
+    }
+
+    private func clueText(at index: Int) -> String {
+        guard !currentAnimal.clues.isEmpty else {
+            return fallbackClue(for: currentAnimal)
+        }
+        let safeIndex = min(max(index, 0), currentAnimal.clues.count - 1)
+        return currentAnimal.clues[safeIndex]
+    }
+
+    private func fallbackClue(for animal: GuessAnimal) -> String {
+        "Det er et dyr. \(categoryHint(for: animal))"
+    }
+
+    private enum GuessAnimalGroup: CaseIterable {
+        case pet
+        case farm
+        case sea
+        case bird
+        case wild
+    }
+
+    private func categoryHint(for animal: GuessAnimal) -> String {
+        switch animalGroup(for: animal) {
+        case .sea:
+            return "Det lever i eller tæt ved vand."
+        case .bird:
+            return "Det er en fugl."
+        case .farm:
+            return "Man kan møde det på en gård."
+        case .pet:
+            return "Mange børn kender det som et kæledyr."
+        case .wild:
+            return "Tænk på, hvordan dyret ser ud og hvilken lyd det laver."
+        }
+    }
+
+    private func animalGroup(for animal: GuessAnimal) -> GuessAnimalGroup {
+        let seaAnimals: Set<String> = ["animal_dolphin", "animal_octopus", "animal_seal", "animal_turtle", "animal_flying_fish", "animal_orca", "animal_walrus", "animal_jellyfish", "animal_crab"]
+        let birds: Set<String> = ["animal_parrot", "animal_owl", "animal_puffin", "animal_toucan", "animal_flamingo", "animal_penguin", "animal_vulture", "animal_ostrich"]
+        let farmAnimals: Set<String> = ["animal_cow", "animal_sheep", "animal_rabbit", "animal_wild_boar"]
+        let pets: Set<String> = ["animal_dog", "animal_cat", "animal_rabbit"]
+
+        if pets.contains(animal.imageName) { return .pet }
+        if farmAnimals.contains(animal.imageName) { return .farm }
+        if seaAnimals.contains(animal.imageName) { return .sea }
+        if birds.contains(animal.imageName) { return .bird }
+        return .wild
+    }
+
+    private func imageChoiceOptionIndices() -> [Int] {
+        let distractors = distractorIndices(for: currentIndex, count: 2)
+        var options = [currentIndex] + distractors
+
+        if options.count < 3 {
+            for index in animals.indices.shuffled() {
+                guard index != currentIndex else { continue }
+                guard !options.contains(index) else { continue }
+                options.append(index)
+                if options.count == 3 { break }
+            }
+        }
+
+        return Array(options.prefix(3)).shuffled()
+    }
+
+    private func distractorIndices(for correctIndex: Int, count: Int) -> [Int] {
+        let correctAnimal = animals[correctIndex]
+        let preferredGroups = distractorGroupPriority(for: animalGroup(for: correctAnimal))
+        var selected: [Int] = []
+
+        for group in preferredGroups {
+            let candidates = animals.indices.shuffled().filter { index in
+                guard index != correctIndex else { return false }
+                guard animals[index].imageName != correctAnimal.imageName else { return false }
+                guard animals[index].displayName != correctAnimal.displayName else { return false }
+                guard animalGroup(for: animals[index]) == group else { return false }
+                return !selected.contains(index)
+            }
+
+            for index in candidates {
+                selected.append(index)
+                if selected.count == count {
+                    return selected
+                }
+            }
+        }
+
+        return selected
+    }
+
+    private func distractorGroupPriority(for group: GuessAnimalGroup) -> [GuessAnimalGroup] {
+        switch group {
+        case .pet:
+            return [.pet, .farm, .wild, .bird, .sea]
+        case .farm:
+            return [.farm, .pet, .wild, .bird, .sea]
+        case .sea:
+            return [.sea, .bird, .wild, .farm, .pet]
+        case .bird:
+            return [.bird, .wild, .farm, .pet, .sea]
+        case .wild:
+            return [.wild, .farm, .pet, .bird, .sea]
         }
     }
 
     private func clueAudioFileName(for animal: GuessAnimal, clueIndex: Int) -> String {
-        "\(animal.imageName)_clue\(clueIndex + 1)"
+        "\(animal.audioFile)_clue\(clueIndex + 1)"
     }
 
     private func speakClue(at clueIndex: Int, completion: (() -> Void)? = nil) {
-        let clueText = currentAnimal.clues[clueIndex]
+        let clueText = clueText(at: clueIndex)
         let clueFile = clueAudioFileName(for: currentAnimal, clueIndex: clueIndex)
 
-        AudioVoiceManager.shared.debugLogging = false
+        AudioVoiceManager.shared.debugLogging = true
         AudioVoiceManager.shared.stopAll()
         AudioVoiceManager.shared.speakSequencePerSegment(
             aiFiles: [clueFile],
@@ -1374,8 +1816,18 @@ struct GuessAnimalView: View {
         )
     }
 
+    private func speakNarration(_ text: String, aiFile: String? = nil, completion: (() -> Void)? = nil) {
+        AudioVoiceManager.shared.debugLogging = true
+        AudioVoiceManager.shared.stopAll()
+        AudioVoiceManager.shared.speakSequencePerSegment(
+            aiFiles: [aiFile],
+            segmentFallbackTexts: [text],
+            completion: completion
+        )
+    }
+
     private func speakSuccessSequence() {
-        AudioVoiceManager.shared.debugLogging = false
+        AudioVoiceManager.shared.debugLogging = true
         AudioVoiceManager.shared.stopAll()
         AudioVoiceManager.shared.speakSequencePerSegment(
             aiFiles: ["Generic_Flot", currentAnimal.audioFile],
@@ -1385,7 +1837,7 @@ struct GuessAnimalView: View {
     }
 
     private func speakWrongSequence() {
-        AudioVoiceManager.shared.debugLogging = false
+        AudioVoiceManager.shared.debugLogging = true
         AudioVoiceManager.shared.stopAll()
         AudioVoiceManager.shared.speakSequencePerSegment(
             aiFiles: ["animal_guess_wrong", currentAnimal.audioFile],
@@ -1394,31 +1846,39 @@ struct GuessAnimalView: View {
         )
     }
 
-    private func playAnimalSound(named fileName: String) {
-        guard let url = Bundle.main.url(forResource: fileName, withExtension: "mp3") else { return }
-        do {
-            AudioVoiceManager.shared.stopAll()
-            try AVAudioSession.sharedInstance().setCategory(.playback, options: [.duckOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
-            player = try AVAudioPlayer(contentsOf: url)
-            player?.prepareToPlay()
-            player?.play()
-        } catch {
-            print("Audio play error:", error)
-        }
-    }
-
     private func teardown() {
+        log("Tearing down Guess Animal view")
         invalidateFlowToken()
         countdownTimer?.invalidate()
         countdownTimer = nil
         recognizer.stopListening()
         stopListeningFeedback()
         stopAudioPlayback()
+        shouldResumeAfterChoiceSheet = false
+        shouldResumeAfterForeground = false
+        helpChoiceOptions = []
+    }
+
+    private func transition(to newPhase: GuessAnimalRoundPhase, reason: String) {
+        log("Phase \(String(describing: phase)) -> \(String(describing: newPhase)) [\(reason)]")
+        phase = newPhase
+    }
+
+    private func scheduleFlow(after delay: TimeInterval, action: @escaping () -> Void) {
+        cancelScheduledFlow()
+        let workItem = DispatchWorkItem(block: action)
+        scheduledFlowWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func cancelScheduledFlow() {
+        scheduledFlowWorkItem?.cancel()
+        scheduledFlowWorkItem = nil
     }
 
     private func invalidateFlowToken() {
         flowToken = UUID()
+        cancelScheduledFlow()
     }
 
     private func stopAudioPlayback() {
@@ -1426,75 +1886,140 @@ struct GuessAnimalView: View {
         player?.stop()
         player = nil
     }
+
+    private func log(_ message: String) {
+        print("[GuessAnimal] \(message)")
+    }
 }
 
 // MARK: - Multiple choice
 
 struct MultipleChoiceView: View {
     let animals: [GuessAnimal]
-    let correctIndex: Int
+    let optionIndices: [Int]
     let onChoose: (Int) -> Void
 
-    @Environment(\.presentationMode) private var presentationMode
-    private let options: [Int]
+    @Environment(\.dismiss) private var dismiss
 
-    init(animals: [GuessAnimal], correctIndex: Int, onChoose: @escaping (Int) -> Void) {
-        self.animals = animals
-        self.correctIndex = correctIndex
-        self.onChoose = onChoose
-
-        var generated = [correctIndex]
-        var pool = animals.indices.filter { $0 != correctIndex }.shuffled()
-        while generated.count < min(4, animals.count), let next = pool.first {
-            generated.append(next)
-            pool.removeFirst()
-        }
-        self.options = generated.shuffled()
+    private var displayedOptions: [Int] {
+        Array(optionIndices.prefix(3))
     }
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 14) {
-                Text("Vælg billedet")
-                    .font(.title3.bold())
+            GeometryReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 12) {
+                        headerCard
 
-                ForEach(options, id: \.self) { index in
-                    Button(action: {
-                        onChoose(index)
-                        presentationMode.wrappedValue.dismiss()
-                    }) {
-                        HStack(spacing: 12) {
-                            Image(animals[index].imageName)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 72, height: 72)
-                                .background(Color.gray.opacity(0.08))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                            Text(animals[index].displayName)
-                                .font(.headline)
-                                .foregroundColor(.primary)
-
-                            Spacer()
+                        if displayedOptions.count == 3 {
+                            HStack(spacing: 10) {
+                                ForEach(displayedOptions, id: \.self) { index in
+                                    compactChoiceCard(for: index)
+                                }
+                            }
+                        } else {
+                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                                ForEach(displayedOptions, id: \.self) { index in
+                                    compactChoiceCard(for: index)
+                                }
+                            }
                         }
-                        .padding(10)
-                        .background(Color(.systemGray6))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 16)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: proxy.size.height)
                 }
-
-                Spacer()
+                .background(
+                    LinearGradient(
+                        colors: [Color(red: 1.0, green: 0.96, blue: 0.87), Color(red: 0.90, green: 0.96, blue: 1.0)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .ignoresSafeArea()
+                )
             }
-            .padding()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Luk") {
-                        presentationMode.wrappedValue.dismiss()
+                        dismiss()
                     }
                 }
             }
         }
+    }
+
+    private var headerCard: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.headline)
+                Text("Find det rigtige dyr")
+                    .font(.title3.bold())
+            }
+            .foregroundColor(.black)
+
+            Text("Tryk på et billede")
+                .font(.headline)
+                .foregroundColor(.black.opacity(0.62))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .background(Color.white.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.7), lineWidth: 1.4)
+        )
+    }
+
+    private func compactChoiceCard(for index: Int) -> some View {
+        Button(action: { choose(index) }) {
+            VStack(spacing: 6) {
+                animalImage(for: index, size: 58)
+                Text(animals[index].displayName)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundColor(.black)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .background(choiceCardBackground)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func animalImage(for index: Int, size: CGFloat) -> some View {
+        Image(animals[index].imageName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .padding(6)
+            .background(Color.white.opacity(0.88))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var choiceCardBackground: some View {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .fill(Color.white.opacity(0.78))
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color.white.opacity(0.7), lineWidth: 1.5)
+            )
+            .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
+    }
+
+    private func choose(_ index: Int) {
+        onChoose(index)
+        dismiss()
     }
 }
 

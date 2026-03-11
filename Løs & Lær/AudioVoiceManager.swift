@@ -101,6 +101,7 @@ final class AudioVoiceManager: NSObject {
         private let debug: Bool
         private var index = 0
         private var player: AVAudioPlayer?
+        private var speechManager: SpeechManager?
         private var completion: (() -> Void)?
         private var finishedCallback: (() -> Void)?
         private var isStopped = false
@@ -125,14 +126,14 @@ final class AudioVoiceManager: NSObject {
             finishedCallback = nil
             player?.stop()
             player = nil
+            speechManager = nil
         }
 
         private func playNext() {
             guard !isStopped else { return }
 
             if index >= aiFiles.count {
-                completion?()
-                finishedCallback?()
+                finishSequence()
                 return
             }
 
@@ -170,13 +171,24 @@ final class AudioVoiceManager: NSObject {
             }
             if debug { print("[AudioVoiceManager] TTS segment: \"\(text)\"") }
             let tts = SpeechManager()
+            speechManager = tts
             tts.speak(text) { [weak self] in
+                guard let self else { return }
+                self.speechManager = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
                     guard let self else { return }
                     guard !self.isStopped else { return }
                     self.playNext()
                 }
             }
+        }
+
+        private func finishSequence() {
+            speechManager = nil
+            completion?()
+            completion = nil
+            finishedCallback?()
+            finishedCallback = nil
         }
 
         // AVAudioPlayerDelegate
