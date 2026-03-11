@@ -45,13 +45,13 @@ struct ParentInfoView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("🧮 Labyrint Matematik")
+                        Text("🧮 Labyrint 2+3 = ?")
                             .font(.title3.bold())
                         Text("Træner simple regnestykker og talforståelse.")
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("✏️ Labyrint Stave")
+                        Text("✏️ Labyrint stav")
                             .font(.title3.bold())
                         Text("Træner ordgenkendelse, stavning og bogstavrækkefølge.")
                     }
@@ -87,7 +87,7 @@ struct ParentInfoView: View {
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("🎲 Mix spillene")
+                        Text("🎲 Spil alle spil")
                             .font(.title3.bold())
                         Text("Lader barnet spille alle i tilfældig rækkefølge. En opgavebog på iPad")
                     }
