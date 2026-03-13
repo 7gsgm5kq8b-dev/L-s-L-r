@@ -17,10 +17,6 @@ enum MarbleOrientationLock {
     static func lockGameplayOrientation(for controller: UIViewController) {
         currentMask = gameplayMask
         controller.setNeedsUpdateOfSupportedInterfaceOrientations()
-        if #available(iOS 16.0, *) {
-            controller.setNeedsUpdateOfPrefersInterfaceOrientationLocked()
-        }
-
         UIDevice.current.setValue(gameplayOrientation.rawValue, forKey: "orientation")
         requestGeometryUpdate(for: controller, mask: gameplayMask)
     }
@@ -28,9 +24,6 @@ enum MarbleOrientationLock {
     static func unlockAppOrientation(from controller: UIViewController?) {
         currentMask = appDefaultMask
         controller?.setNeedsUpdateOfSupportedInterfaceOrientations()
-        if #available(iOS 16.0, *) {
-            controller?.setNeedsUpdateOfPrefersInterfaceOrientationLocked()
-        }
         requestGeometryUpdate(for: controller, mask: appDefaultMask)
     }
 
@@ -44,9 +37,6 @@ enum MarbleOrientationLock {
         }
         for window in scene.windows {
             window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-            if #available(iOS 16.0, *) {
-                window.rootViewController?.setNeedsUpdateOfPrefersInterfaceOrientationLocked()
-            }
         }
     }
 

@@ -19,8 +19,9 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
 
     let motionController: MarbleTiltController
 
+    private static var lastPresentedBoard: MarbleBoardConfiguration?
+
     private var currentBoard: MarbleBoardConfiguration
-    private var nextBoardSeed: UInt64
     private var cancellables: Set<AnyCancellable> = []
 
     var boardAspectRatio: CGFloat {
@@ -31,13 +32,12 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
 
     init() {
         let controller = MarbleTiltController()
-        let initialSeed: UInt64 = 1001
-        let board = MarbleBoardConfiguration.generated(seed: initialSeed)
+        let board = Self.generateFreshBoard(after: Self.lastPresentedBoard)
         self.motionController = controller
         self.currentBoard = board
-        self.nextBoardSeed = initialSeed + 1
         self.scene = MarbleLabyrinthScene(board: board, motionController: controller)
         attachSceneHandler(to: scene)
+        Self.lastPresentedBoard = board
 
         motionController.$debugSample
             .receive(on: DispatchQueue.main)
@@ -69,10 +69,11 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
 
     func startNextGame() {
         let previousBoard = currentBoard
-        let nextBoard = generateNextBoard(from: previousBoard)
+        let nextBoard = Self.generateFreshBoard(after: previousBoard)
         phase = .playing
         motionController.refresh()
         currentBoard = nextBoard
+        Self.lastPresentedBoard = nextBoard
 
         replaceScene(for: nextBoard)
     }
@@ -101,27 +102,36 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
         gameplayHintToken = UUID()
     }
 
-    private func generateNextBoard(from previousBoard: MarbleBoardConfiguration) -> MarbleBoardConfiguration {
-        var candidateSeed = max(nextBoardSeed, previousBoard.boardSeed + 1)
-        var attempts = 0
+    private static func generateFreshBoard(after previousBoard: MarbleBoardConfiguration?) -> MarbleBoardConfiguration {
         let maximumAttempts = 1024
+        var attemptedSeeds: Set<UInt64> = []
 
-        while attempts < maximumAttempts {
+        for _ in 0..<maximumAttempts {
+            let candidateSeed = randomBoardSeed(excluding: attemptedSeeds)
+            attemptedSeeds.insert(candidateSeed)
+
             let candidate = MarbleBoardConfiguration.generated(seed: candidateSeed)
-            let topologyChanged = !candidate.hasSameMazeTopology(as: previousBoard)
-
-            if topologyChanged {
-                nextBoardSeed = candidateSeed + 1
-                return candidate
+            if let previousBoard, candidate.hasSameMazeTopology(as: previousBoard) {
+                continue
             }
 
-            candidateSeed += 1
-            attempts += 1
+            if let previousBoard, candidate.hasSameHoleZonePattern(as: previousBoard) {
+                continue
+            }
+
+            return candidate
         }
 
-        assertionFailure("Unable to generate a fresh maze topology for the next game")
-        nextBoardSeed = candidateSeed + 1
-        return MarbleBoardConfiguration.generated(seed: candidateSeed)
+        assertionFailure("Unable to generate a fresh random maze for Kuglebane")
+        return MarbleBoardConfiguration.generated(seed: randomBoardSeed(excluding: attemptedSeeds))
+    }
+
+    private static func randomBoardSeed(excluding attemptedSeeds: Set<UInt64>) -> UInt64 {
+        var candidateSeed = UInt64.random(in: 1...UInt64.max)
+        while attemptedSeeds.contains(candidateSeed) {
+            candidateSeed = UInt64.random(in: 1...UInt64.max)
+        }
+        return candidateSeed
     }
 
     private func handle(_ event: MarbleLabyrinthScene.Event) {
@@ -133,7 +143,7 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
         case .manualReset:
             phase = .playing
         case .failed:
-            phase = .failed
+            replayCurrentBoard()
         case .success:
             phase = .success
         }
@@ -159,6 +169,14 @@ struct MarbleLabyrinthPOCView: View {
     @StateObject private var viewModel = MarbleLabyrinthPOCViewModel()
     @State private var isGameplayHintVisible = true
 
+    private var shouldShowSimulatorControls: Bool {
+#if targetEnvironment(simulator)
+        viewModel.motionController.isUsingFallback
+#else
+        false
+#endif
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let metrics = layoutMetrics(in: proxy)
@@ -178,7 +196,7 @@ struct MarbleLabyrinthPOCView: View {
                     boardCard(size: metrics.boardSize)
                         .frame(maxWidth: .infinity)
 
-                    if viewModel.motionController.isUsingFallback {
+                    if shouldShowSimulatorControls {
                         simulatorControls(width: metrics.simulatorWidth)
                     }
                 }
@@ -279,7 +297,7 @@ struct MarbleLabyrinthPOCView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .shadow(color: .black.opacity(0.05), radius: 14, y: 6)
 
-            if viewModel.phase != .playing {
+            if viewModel.phase == .success {
                 overlayCard(width: min(size.width * 0.52, 520))
                     .padding(.horizontal, 18)
             }
@@ -287,28 +305,19 @@ struct MarbleLabyrinthPOCView: View {
         .frame(width: size.width, height: size.height)
     }
 
-    @ViewBuilder
     private func overlayCard(width: CGFloat) -> some View {
-        let isSuccess = viewModel.phase == .success
-
         ZStack {
-            overlayBackdrop(width: width, isSuccess: isSuccess)
+            overlayBackdrop(width: width, isSuccess: true)
 
             VStack(spacing: 14) {
-                if isSuccess {
-                    HStack(spacing: 8) {
-                        Image(systemName: "sparkles")
-                        Text("Du fandt målet!")
-                    }
-                    .font(.system(size: 31, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Color(red: 0.73, green: 0.47, blue: 0.09))
-                } else {
-                    Text("Prøv igen")
-                        .font(.system(size: 28, weight: .heavy, design: .rounded))
-                        .foregroundColor(.black.opacity(0.82))
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                    Text("Du fandt målet!")
                 }
+                .font(.system(size: 31, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(red: 0.73, green: 0.47, blue: 0.09))
 
-                Text(isSuccess ? "Kuglen klarede banen." : "En ny bane er klar.")
+                Text("Kuglen klarede banen.")
                     .font(.title3.weight(.bold))
                     .multilineTextAlignment(.center)
                     .foregroundColor(.black.opacity(0.70))
@@ -327,7 +336,7 @@ struct MarbleLabyrinthPOCView: View {
             .frame(maxWidth: width)
         }
         .shadow(
-            color: (isSuccess ? Color(red: 1.0, green: 0.78, blue: 0.26) : Color.black).opacity(0.12),
+            color: Color(red: 1.0, green: 0.78, blue: 0.26).opacity(0.12),
             radius: 22,
             y: 12
         )
@@ -445,7 +454,7 @@ struct MarbleLabyrinthPOCView: View {
         let contentWidth = max(320, safeWidth - horizontalPadding * 2)
         let boardAspectRatio = max(viewModel.boardAspectRatio, 1.0)
         let topBarHeight: CGFloat = isLandscape ? 72 : 80
-        let simulatorHeight: CGFloat = viewModel.motionController.isUsingFallback ? (isLandscape ? 196 : 220) : 0
+        let simulatorHeight: CGFloat = shouldShowSimulatorControls ? (isLandscape ? 196 : 220) : 0
         let verticalChrome: CGFloat = isLandscape ? 18 : 24
         let maxBoardHeight = max(220, safeHeight - topBarHeight - simulatorHeight - verticalChrome)
         let boardWidth = min(contentWidth, maxBoardHeight * boardAspectRatio)

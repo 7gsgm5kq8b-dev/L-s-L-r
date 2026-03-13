@@ -16,8 +16,8 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
     let holes: [CGPoint]
 
     static func generated(seed: UInt64) -> MarbleBoardConfiguration {
-        for attempt in 0..<16 {
-            if let board = makeCandidate(seed: seed, attempt: attempt) {
+        for attempt in 0..<48 {
+            if let board = makeCandidate(seed: seed, attempt: attempt, mode: .strict) {
                 return board
             }
         }
@@ -41,6 +41,11 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         boardSize == other.boardSize &&
         borderThickness == other.borderThickness &&
         wallRects == other.wallRects
+    }
+
+    func hasSameHoleZonePattern(as other: MarbleBoardConfiguration) -> Bool {
+        guard boardSize == other.boardSize else { return false }
+        return Self.holeZonePattern(for: holes, boardSize: boardSize) == Self.holeZonePattern(for: other.holes, boardSize: other.boardSize)
     }
 
     private struct MazeCell: Hashable {
@@ -112,7 +117,34 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         let rowBand: Int
     }
 
-    private static func makeCandidate(seed: UInt64, attempt: Int) -> MarbleBoardConfiguration? {
+    private struct CornerAnchor {
+        let horizontal: CGFloat
+        let vertical: CGFloat
+    }
+
+    private enum BoardValidationMode {
+        case strict
+        case relaxed
+        case emergency
+    }
+
+    private static func holeZonePattern(for holes: [CGPoint], boardSize: CGSize) -> [Int] {
+        holes
+            .map { holeZoneToken(for: $0, boardSize: boardSize) }
+            .sorted()
+    }
+
+    private static func holeZoneToken(for point: CGPoint, boardSize: CGSize) -> Int {
+        let safeWidth = max(boardSize.width, 1)
+        let safeHeight = max(boardSize.height, 1)
+        let normalizedX = max(0, min(0.9999, point.x / safeWidth))
+        let normalizedY = max(0, min(0.9999, point.y / safeHeight))
+        let columnBand = min(2, Int(normalizedX * 3))
+        let rowBand = min(2, Int(normalizedY * 3))
+        return rowBand * 3 + columnBand
+    }
+
+    private static func makeCandidate(seed: UInt64, attempt: Int, mode: BoardValidationMode = .strict) -> MarbleBoardConfiguration? {
         var random = SeededGenerator(seed: mixedSeed(base: seed, salt: UInt64(attempt + 1)))
 
         let boardSize = CGSize(width: 1280, height: 860)
@@ -174,14 +206,58 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         return isValid(
             board: board,
             layout: layout,
-            solutionPath: solutionPath
+            adjacency: adjacency,
+            solutionPath: solutionPath,
+            mode: mode
         ) ? board : nil
     }
 
     private static func fallbackBoard(seed: UInt64) -> MarbleBoardConfiguration {
-        for saltOffset in 0..<32 {
+        for saltOffset in 0..<128 {
             let fallbackSeed = mixedSeed(base: seed, salt: 0xFABBAC11 &+ UInt64(saltOffset))
-            if let board = makeCandidate(seed: fallbackSeed, attempt: 0) {
+            for attempt in 0..<12 {
+                if let board = makeCandidate(seed: fallbackSeed, attempt: attempt, mode: .strict) {
+                    return MarbleBoardConfiguration(
+                        id: "board_seed_\(seed)",
+                        boardSeed: seed,
+                        boardSize: board.boardSize,
+                        borderThickness: board.borderThickness,
+                        marbleRadius: board.marbleRadius,
+                        holeRadius: board.holeRadius,
+                        startRect: board.startRect,
+                        startPosition: board.startPosition,
+                        goalRect: board.goalRect,
+                        wallRects: board.wallRects,
+                        holes: board.holes
+                    )
+                }
+            }
+        }
+
+        for saltOffset in 0..<256 {
+            let fallbackSeed = mixedSeed(base: seed, salt: 0xC0FFEE11 &+ UInt64(saltOffset))
+            for attempt in 0..<16 {
+                if let board = makeCandidate(seed: fallbackSeed, attempt: attempt, mode: .relaxed) {
+                    return MarbleBoardConfiguration(
+                        id: "board_seed_\(seed)",
+                        boardSeed: seed,
+                        boardSize: board.boardSize,
+                        borderThickness: board.borderThickness,
+                        marbleRadius: board.marbleRadius,
+                        holeRadius: board.holeRadius,
+                        startRect: board.startRect,
+                        startPosition: board.startPosition,
+                        goalRect: board.goalRect,
+                        wallRects: board.wallRects,
+                        holes: board.holes
+                    )
+                }
+            }
+        }
+
+        let emergencySeed = mixedSeed(base: seed, salt: 0x5AFECAFE)
+        for attempt in 0..<512 {
+            if let board = makeCandidate(seed: emergencySeed &+ UInt64(attempt), attempt: attempt, mode: .emergency) {
                 return MarbleBoardConfiguration(
                     id: "board_seed_\(seed)",
                     boardSeed: seed,
@@ -198,7 +274,7 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
             }
         }
 
-        fatalError("Unable to generate Marble Labyrinth board")
+        preconditionFailure("Unable to generate Marble Labyrinth board")
     }
 
     private static func makeMazeLayout(innerRect: CGRect, marbleRadius: CGFloat) -> MazeLayout? {
@@ -357,193 +433,351 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         goalRect: CGRect
     ) -> [CGPoint] {
         let solutionCells = Set(solutionPath)
-        let deadEnds = layout.allCells.filter { cell in
-            guard !solutionCells.contains(cell) else { return false }
-            return (adjacency[cell]?.count ?? 0) == 1
-        }
-        let fallbackCells = layout.allCells.filter { cell in
-            guard !solutionCells.contains(cell) else { return false }
-            return cell.column > 0 && (adjacency[cell]?.count ?? 0) <= 2
-        }
-        let secondaryCells = layout.allCells.filter { cell in
+        let candidateCells = layout.allCells.filter { cell in
             guard !solutionCells.contains(cell) else { return false }
             return cell.column > 0
         }
-        let minimumHoleCount = 5
+        let turnCells = uniqueCells(candidateCells.filter { isTurnCell(adjacency[$0, default: []]) })
+        let intersectionCells = uniqueCells(candidateCells.filter { (adjacency[$0]?.count ?? 0) >= 3 })
+        let deadEnds = uniqueCells(candidateCells.filter { (adjacency[$0]?.count ?? 0) == 1 })
+        let corridorCells = uniqueCells(candidateCells.filter { (adjacency[$0]?.count ?? 0) == 2 })
+        let criticalTurnCells = Set(turnCells.filter {
+            isCriticalTurnTrapCell($0, adjacency: adjacency, solutionCells: solutionCells, layout: layout)
+        })
 
-        var primaryCells = deadEnds.isEmpty ? fallbackCells : deadEnds
-        var reserveCells = fallbackCells.filter { !primaryCells.contains($0) }
-        if reserveCells.count < 2 {
-            reserveCells.append(contentsOf: secondaryCells.filter { !primaryCells.contains($0) && !reserveCells.contains($0) })
-        }
-        shuffleInPlace(&primaryCells, random: &random)
-        shuffleInPlace(&reserveCells, random: &random)
-        let extraHoleCapacity = min(2, max(0, primaryCells.count + reserveCells.count - minimumHoleCount))
-        let desiredCount = min(
-            primaryCells.count + reserveCells.count,
-            minimumHoleCount + (extraHoleCapacity > 0 ? random.nextInt(in: 0...extraHoleCapacity) : 0)
-        )
+        let prioritizedCells = uniqueCells(turnCells + intersectionCells + deadEnds + corridorCells + candidateCells)
+        let zoneCandidates = Dictionary(grouping: prioritizedCells, by: { holeZone(for: $0, layout: layout) })
+            .mapValues(uniqueCells)
+        let availableZones = allHoleGridZones().filter { !(zoneCandidates[$0] ?? []).isEmpty }
+
+        guard !availableZones.isEmpty else { return [] }
+
+        let minimumHoleCount = min(5, availableZones.count)
+        let maximumHoleCount = min(7, availableZones.count)
+        let desiredCount = minimumHoleCount == maximumHoleCount
+            ? minimumHoleCount
+            : random.nextInt(in: minimumHoleCount...maximumHoleCount)
         var selectedCells: [MazeCell] = []
-        var requiredRowBands = Array(0..<min(3, layout.rows))
-        shuffleInPlace(&requiredRowBands, random: &random)
-
-        for rowBand in requiredRowBands {
-            let bandCandidates = prioritizedHoleCandidates(
-                selected: selectedCells,
-                primary: primaryCells,
-                reserve: reserveCells,
-                secondary: secondaryCells,
-                allowedZones: nil,
-                requiredRowBand: rowBand,
-                layout: layout
-            )
-
-            guard let nextCell = bestHoleCell(
-                from: bandCandidates,
-                selected: selectedCells,
-                layout: layout,
-                startPosition: startPosition,
-                goalRect: goalRect,
-                preferredZones: [],
-                random: &random
-            ) else {
-                continue
-            }
-
-            selectedCells.append(nextCell)
-        }
-
-        let structuredCoverageTarget = min(desiredCount, max(minimumHoleCount, 5))
-
-        while selectedCells.count < structuredCoverageTarget {
-            let remainingCandidates = prioritizedHoleCandidates(
-                selected: selectedCells,
-                primary: primaryCells,
-                reserve: reserveCells,
-                secondary: secondaryCells,
-                allowedZones: nil,
-                requiredRowBand: nil,
-                layout: layout
-            )
-            let coveredZones = Set(selectedCells.map { holeZone(for: $0, layout: layout) })
-            let uncoveredZones = Set(remainingCandidates.map { holeZone(for: $0, layout: layout) }).subtracting(coveredZones)
-
-            guard !uncoveredZones.isEmpty else { break }
-            guard let nextCell = bestHoleCell(
-                from: remainingCandidates.filter { uncoveredZones.contains(holeZone(for: $0, layout: layout)) },
-                selected: selectedCells,
-                layout: layout,
-                startPosition: startPosition,
-                goalRect: goalRect,
-                preferredZones: uncoveredZones,
-                random: &random
-            ) else {
-                break
-            }
-
-            selectedCells.append(nextCell)
-        }
-
-        while selectedCells.count < desiredCount {
-            let remainingCandidates = prioritizedHoleCandidates(
-                selected: selectedCells,
-                primary: primaryCells,
-                reserve: reserveCells,
-                secondary: secondaryCells,
-                allowedZones: nil,
-                requiredRowBand: nil,
-                layout: layout
-            )
-
-            guard let nextCell = bestHoleCell(
-                from: remainingCandidates,
-                selected: selectedCells,
-                layout: layout,
-                startPosition: startPosition,
-                goalRect: goalRect,
-                preferredZones: [],
-                random: &random
-            ) else {
-                break
-            }
-
-            selectedCells.append(nextCell)
-        }
-
         var holes: [CGPoint] = []
+        let minimumHoleSpacing: CGFloat = 132
 
-        for cell in selectedCells {
-            let cellRect = layout.rect(for: cell)
-            let jitterX = min(cellRect.width * 0.10, 12)
-            let jitterY = min(cellRect.height * 0.10, 12)
-            let candidate = CGPoint(
-                x: cellRect.midX + random.nextCGFloat(in: -jitterX...jitterX),
-                y: cellRect.midY + random.nextCGFloat(in: -jitterY...jitterY)
+        let criticalZone = shuffled(availableZones, random: &random).first(where: { zone in
+            (zoneCandidates[zone] ?? []).contains(where: { criticalTurnCells.contains($0) })
+        })
+        let selectedZones = pickHoleZones(
+            from: availableZones,
+            desiredCount: desiredCount,
+            requiredZone: criticalZone,
+            random: &random
+        )
+
+        for zone in selectedZones {
+            let zoneCells = zoneCandidates[zone] ?? []
+            let prioritizedZoneCells = uniqueCells(
+                zoneCells.filter { criticalTurnCells.contains($0) } + zoneCells
             )
 
-            guard distance(candidate, startPosition) > 220 else { continue }
-            guard !goalRect.insetBy(dx: -80, dy: -80).contains(candidate) else { continue }
-            guard holes.allSatisfy({ distance($0, candidate) > 138 }) else { continue }
-            guard cellRect.insetBy(dx: holeRadius + 18, dy: holeRadius + 18).contains(candidate) else { continue }
+            let inserted = appendBestHole(
+                from: prioritizedZoneCells,
+                selectedCells: &selectedCells,
+                holes: &holes,
+                layout: layout,
+                adjacency: adjacency,
+                solutionCells: solutionCells,
+                holeRadius: holeRadius,
+                startPosition: startPosition,
+                goalRect: goalRect,
+                preferredZones: [zone],
+                requiredZone: zone,
+                minimumHoleSpacing: minimumHoleSpacing,
+                random: &random
+            )
 
-            holes.append(candidate)
-            if holes.count >= desiredCount {
-                break
+            guard inserted else { continue }
+        }
+
+        if holes.count < maximumHoleCount && !hasCriticalTurnTrap(holes, layout: layout, adjacency: adjacency, solutionCells: solutionCells) {
+            let criticalCandidates = uniqueCells(
+                prioritizedCells.filter { criticalTurnCells.contains($0) && !selectedCells.contains($0) }
+            )
+            let existingZoneSet = Set(holes.map { holeZone(for: $0, layout: layout) })
+
+            if let missingCriticalCell = criticalCandidates.first(where: {
+                !existingZoneSet.contains(holeZone(for: $0, layout: layout))
+            }) {
+                _ = appendBestHole(
+                    from: [missingCriticalCell],
+                    selectedCells: &selectedCells,
+                    holes: &holes,
+                    layout: layout,
+                    adjacency: adjacency,
+                    solutionCells: solutionCells,
+                    holeRadius: holeRadius,
+                    startPosition: startPosition,
+                    goalRect: goalRect,
+                    preferredZones: [holeZone(for: missingCriticalCell, layout: layout)],
+                    requiredZone: holeZone(for: missingCriticalCell, layout: layout),
+                    minimumHoleSpacing: minimumHoleSpacing,
+                    random: &random
+                )
             }
         }
 
         if holes.count < minimumHoleCount {
-            let fallbackSource = prioritizedHoleCandidates(
-                selected: selectedCells,
-                primary: [],
-                reserve: reserveCells,
-                secondary: secondaryCells,
-                allowedZones: nil,
-                requiredRowBand: nil,
-                layout: layout
+            let uncoveredZones = shuffled(
+                allHoleGridZones().filter { zone in
+                    !holes.contains { holeZone(for: $0, layout: layout) == zone }
+                },
+                random: &random
             )
 
-            for cell in fallbackSource {
-                let cellRect = layout.rect(for: cell)
-                let candidate = CGPoint(x: cellRect.midX, y: cellRect.midY)
-                guard distance(candidate, startPosition) > 220 else { continue }
-                guard !goalRect.insetBy(dx: -80, dy: -80).contains(candidate) else { continue }
-                guard holes.allSatisfy({ distance($0, candidate) > 138 }) else { continue }
-                guard cellRect.insetBy(dx: holeRadius + 18, dy: holeRadius + 18).contains(candidate) else { continue }
-                holes.append(candidate)
-                if holes.count >= minimumHoleCount { break }
+            for zone in uncoveredZones where holes.count < minimumHoleCount {
+                let zoneCells = zoneCandidates[zone] ?? []
+                let inserted = appendBestHole(
+                    from: zoneCells,
+                    selectedCells: &selectedCells,
+                    holes: &holes,
+                    layout: layout,
+                    adjacency: adjacency,
+                    solutionCells: solutionCells,
+                    holeRadius: holeRadius,
+                    startPosition: startPosition,
+                    goalRect: goalRect,
+                    preferredZones: [zone],
+                    requiredZone: zone,
+                    minimumHoleSpacing: minimumHoleSpacing,
+                    random: &random
+                )
+
+                guard inserted else { continue }
+            }
+        }
+
+        if holes.count < minimumHoleCount {
+            let fallbackCells = uniqueCells(prioritizedCells.filter { !selectedCells.contains($0) })
+            for cell in fallbackCells where holes.count < minimumHoleCount {
+                let zone = holeZone(for: cell, layout: layout)
+                let inserted = appendBestHole(
+                    from: [cell],
+                    selectedCells: &selectedCells,
+                    holes: &holes,
+                    layout: layout,
+                    adjacency: adjacency,
+                    solutionCells: solutionCells,
+                    holeRadius: holeRadius,
+                    startPosition: startPosition,
+                    goalRect: goalRect,
+                    preferredZones: [zone],
+                    minimumHoleSpacing: minimumHoleSpacing,
+                    random: &random
+                )
+
+                guard inserted else { continue }
             }
         }
 
         return holes
     }
 
+    private static func appendBestHole(
+        from candidates: [MazeCell],
+        selectedCells: inout [MazeCell],
+        holes: inout [CGPoint],
+        layout: MazeLayout,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        solutionCells: Set<MazeCell>,
+        holeRadius: CGFloat,
+        startPosition: CGPoint,
+        goalRect: CGRect,
+        preferredZones: Set<HoleZone>,
+        requiredZone: HoleZone? = nil,
+        minimumHoleSpacing: CGFloat,
+        random: inout SeededGenerator
+    ) -> Bool {
+        guard !candidates.isEmpty else { return false }
+
+        let scoredCandidates = candidates.map { candidate in
+            (
+                cell: candidate,
+                score: holeCellScore(
+                    for: candidate,
+                    selected: selectedCells,
+                    layout: layout,
+                    adjacency: adjacency,
+                    solutionCells: solutionCells,
+                    startPosition: startPosition,
+                    goalRect: goalRect,
+                    preferredZones: preferredZones
+                ) + random.nextCGFloat(in: -18...18)
+            )
+        }
+        .sorted { lhs, rhs in
+            lhs.score > rhs.score
+        }
+
+        for scoredCandidate in scoredCandidates {
+            let cell = scoredCandidate.cell
+
+            let cellRect = layout.rect(for: cell)
+            for _ in 0..<6 {
+                guard let candidatePoint = preferredHolePoint(
+                    for: cell,
+                    layout: layout,
+                    adjacency: adjacency,
+                    solutionCells: solutionCells,
+                    holeRadius: holeRadius,
+                    random: &random
+                ) else {
+                    continue
+                }
+
+                guard distance(candidatePoint, startPosition) > 220 else { continue }
+                guard !goalRect.insetBy(dx: -80, dy: -80).contains(candidatePoint) else { continue }
+                guard holes.allSatisfy({ distance($0, candidatePoint) > minimumHoleSpacing }) else { continue }
+                guard cellRect.insetBy(dx: holeRadius + 18, dy: holeRadius + 18).contains(candidatePoint) else { continue }
+
+                if let requiredZone, holeZone(for: candidatePoint, layout: layout) != requiredZone {
+                    continue
+                }
+
+                selectedCells.append(cell)
+                holes.append(candidatePoint)
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private static func pickHoleZones(
+        from availableZones: [HoleZone],
+        desiredCount: Int,
+        requiredZone: HoleZone?,
+        random: inout SeededGenerator
+    ) -> [HoleZone] {
+        let uniqueAvailableZones = Array(Set(availableZones))
+        let targetCount = min(desiredCount, uniqueAvailableZones.count)
+        guard targetCount > 0 else { return [] }
+
+        let availableRowBands = Set(uniqueAvailableZones.map(\.rowBand))
+        let availableColumnBands = Set(uniqueAvailableZones.map(\.columnBand))
+        let needsFullCoverage = availableRowBands.count == 3 && availableColumnBands.count == 3 && targetCount >= 5
+
+        var bestSelection: [HoleZone] = []
+        var bestScore = Int.min
+
+        for _ in 0..<96 {
+            var remainingZones = shuffled(uniqueAvailableZones, random: &random)
+            var selection: [HoleZone] = []
+
+            if let requiredZone, remainingZones.contains(requiredZone) {
+                selection.append(requiredZone)
+                remainingZones.removeAll { $0 == requiredZone }
+            }
+
+            for zone in remainingZones where selection.count < targetCount {
+                selection.append(zone)
+            }
+
+            let rowCoverage = Set(selection.map(\.rowBand)).count
+            let columnCoverage = Set(selection.map(\.columnBand)).count
+            let score = rowCoverage * 100 + columnCoverage * 100 + holeZoneSpreadScore(selection)
+
+            if !needsFullCoverage || (rowCoverage == 3 && columnCoverage == 3) {
+                return selection
+            }
+
+            if score > bestScore {
+                bestScore = score
+                bestSelection = selection
+            }
+        }
+
+        return bestSelection.isEmpty ? Array(uniqueAvailableZones.prefix(targetCount)) : bestSelection
+    }
+
+    private static func holeZoneSpreadScore(_ zones: [HoleZone]) -> Int {
+        guard zones.count > 1 else { return 0 }
+
+        var score = 0
+        for index in zones.indices {
+            for otherIndex in zones.indices where otherIndex > index {
+                let dx = abs(zones[index].columnBand - zones[otherIndex].columnBand)
+                let dy = abs(zones[index].rowBand - zones[otherIndex].rowBand)
+                score += dx + dy
+            }
+        }
+        return score
+    }
+
     private static func isValid(
         board: MarbleBoardConfiguration,
         layout: MazeLayout,
-        solutionPath: [MazeCell]
+        adjacency: [MazeCell: Set<MazeDirection>],
+        solutionPath: [MazeCell],
+        mode: BoardValidationMode
     ) -> Bool {
         let innerRect = layout.innerRect
         let solutionRects = solutionPath.map { layout.rect(for: $0) }
+        let solutionCells = Set(solutionPath)
 
         guard innerRect.contains(board.startPosition) else { return false }
         guard innerRect.contains(CGPoint(x: board.goalRect.midX, y: board.goalRect.midY)) else { return false }
         guard !board.wallRects.isEmpty else { return false }
         guard board.wallRects.allSatisfy({ innerRect.contains($0) }) else { return false }
+        guard hasBalancedWallCoverage(board.wallRects, layout: layout) else { return false }
         guard board.wallRects.allSatisfy({ !$0.intersects(board.startRect.insetBy(dx: -16, dy: -16)) }) else { return false }
         guard board.wallRects.allSatisfy({ !$0.intersects(board.goalRect.insetBy(dx: -16, dy: -16)) }) else { return false }
+        let minimumAcceptedHoles: Int
+        switch mode {
+        case .strict:
+            minimumAcceptedHoles = 5
+        case .relaxed:
+            minimumAcceptedHoles = 4
+        case .emergency:
+            minimumAcceptedHoles = 3
+        }
+
         guard !board.holes.isEmpty else { return false }
-        guard board.holes.count >= 5 else { return false }
+        guard board.holes.count >= minimumAcceptedHoles else { return false }
         guard board.holes.allSatisfy({ innerRect.insetBy(dx: board.holeRadius + 10, dy: board.holeRadius + 10).contains($0) }) else { return false }
         guard board.holes.allSatisfy({ hole in solutionRects.allSatisfy { !expanded($0, by: board.holeRadius + board.marbleRadius * 0.85).contains(hole) } }) else { return false }
         guard board.holes.allSatisfy({ hole in board.wallRects.allSatisfy { !expanded($0, by: board.holeRadius + 4).contains(hole) } }) else { return false }
+        let wallProximityLimit: CGFloat
+        switch mode {
+        case .strict:
+            wallProximityLimit = max(56, layout.wallThickness * 1.6)
+        case .relaxed:
+            wallProximityLimit = max(74, layout.wallThickness * 2.1)
+        case .emergency:
+            wallProximityLimit = max(96, layout.wallThickness * 2.6)
+        }
+        guard board.holes.allSatisfy({ isHoleNearWalls($0, wallRects: board.wallRects, maxDistance: wallProximityLimit) }) else { return false }
         guard board.holes.allSatisfy({ distance($0, board.startPosition) > 220 }) else { return false }
-        guard hasBalancedHoleCoverage(board.holes, layout: layout) else { return false }
+        switch mode {
+        case .strict:
+            guard hasBalancedHoleCoverage(board.holes, layout: layout) else { return false }
+            guard hasCriticalTurnTrap(board.holes, layout: layout, adjacency: adjacency, solutionCells: solutionCells) else { return false }
+        case .relaxed:
+            guard hasRelaxedHoleCoverage(board.holes, layout: layout) else { return false }
+            guard hasAnyMeaningfulHazard(board.holes, layout: layout, adjacency: adjacency, solutionCells: solutionCells) else { return false }
+        case .emergency:
+            guard hasAnyMeaningfulHazard(board.holes, layout: layout, adjacency: adjacency, solutionCells: solutionCells) else { return false }
+        }
         guard distance(board.startPosition, CGPoint(x: board.goalRect.midX, y: board.goalRect.midY)) > innerRect.width * 0.42 else { return false }
 
         for index in board.holes.indices {
             for otherIndex in board.holes.indices where otherIndex > index {
-                guard distance(board.holes[index], board.holes[otherIndex]) > 138 else { return false }
+                let minimumSpacing: CGFloat
+                switch mode {
+                case .strict:
+                    minimumSpacing = 132
+                case .relaxed:
+                    minimumSpacing = 124
+                case .emergency:
+                    minimumSpacing = 116
+                }
+                guard distance(board.holes[index], board.holes[otherIndex]) > minimumSpacing else { return false }
             }
         }
 
@@ -567,41 +801,12 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
-    private static func bestHoleCell(
-        from candidates: [MazeCell],
-        selected: [MazeCell],
-        layout: MazeLayout,
-        startPosition: CGPoint,
-        goalRect: CGRect,
-        preferredZones: Set<HoleZone>,
-        random: inout SeededGenerator
-    ) -> MazeCell? {
-        var bestCell: MazeCell?
-        var bestScore = -CGFloat.greatestFiniteMagnitude
-
-        for candidate in candidates {
-            let score = holeCellScore(
-                for: candidate,
-                selected: selected,
-                layout: layout,
-                startPosition: startPosition,
-                goalRect: goalRect,
-                preferredZones: preferredZones
-            ) + random.nextCGFloat(in: -18...18)
-
-            if score > bestScore {
-                bestScore = score
-                bestCell = candidate
-            }
-        }
-
-        return bestCell
-    }
-
     private static func holeCellScore(
         for cell: MazeCell,
         selected: [MazeCell],
         layout: MazeLayout,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        solutionCells: Set<MazeCell>,
         startPosition: CGPoint,
         goalRect: CGRect,
         preferredZones: Set<HoleZone>
@@ -609,20 +814,21 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         let cellRect = layout.rect(for: cell)
         let center = CGPoint(x: cellRect.midX, y: cellRect.midY)
         let zone = holeZone(for: cell, layout: layout)
-        let coveredZones = Set(selected.map { holeZone(for: $0, layout: layout) })
-        let coveredRowBands = Set(coveredZones.map(\.rowBand))
-        let coveredColumnBands = Set(coveredZones.map(\.columnBand))
-        let zoneCoverageBonus: CGFloat = coveredZones.contains(zone) ? 0 : 210
-        let rowBandCoverageBonus: CGFloat = coveredRowBands.contains(zone.rowBand) ? 0 : 240
-        let columnBandCoverageBonus: CGFloat = coveredColumnBands.contains(zone.columnBand) ? 0 : 150
-        let preferredZoneBonus: CGFloat = preferredZones.isEmpty || preferredZones.contains(zone) ? 110 : 0
+        let openDirections = adjacency[cell, default: []]
+        let degree = openDirections.count
+        let preferredZoneBonus: CGFloat = preferredZones.isEmpty || preferredZones.contains(zone) ? 80 : 0
+        let turnBonus: CGFloat = isTurnCell(openDirections) ? 240 : 0
+        let intersectionBonus: CGFloat = degree >= 3 ? 180 : 0
+        let deadEndBonus: CGFloat = degree == 1 ? 120 : 0
+        let solutionConnectionBonus: CGFloat = isConnectedToSolution(cell, adjacency: adjacency, solutionCells: solutionCells, layout: layout) ? 150 : 0
+        let criticalTurnBonus: CGFloat = isCriticalTurnTrapCell(cell, adjacency: adjacency, solutionCells: solutionCells, layout: layout) ? 260 : 0
         let minimumDistanceToOther = selected
             .map { distance(center, CGPoint(x: layout.rect(for: $0).midX, y: layout.rect(for: $0).midY)) }
             .min() ?? 240
         let startDistanceScore = min(distance(center, startPosition), 420) * 0.42
         let goalDistanceScore = min(distance(center, CGPoint(x: goalRect.midX, y: goalRect.midY)), 320) * 0.16
-        let edgeSpread = abs(center.x - layout.innerRect.midX) * 0.10
-        return zoneCoverageBonus + rowBandCoverageBonus + columnBandCoverageBonus + preferredZoneBonus + minimumDistanceToOther * 0.92 + startDistanceScore + goalDistanceScore + edgeSpread
+        let centerAvoidance = abs(center.x - layout.innerRect.midX) * 0.06
+        return preferredZoneBonus + turnBonus + intersectionBonus + deadEndBonus + solutionConnectionBonus + criticalTurnBonus + minimumDistanceToOther * 0.78 + startDistanceScore + goalDistanceScore + centerAvoidance
     }
 
     private static func prioritizedHoleCandidates(
@@ -650,27 +856,28 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
             }
         }
 
-        let primaryMatches = matches(primary)
-        if !primaryMatches.isEmpty {
-            return primaryMatches
-        }
-
-        let reserveMatches = matches(reserve)
-        if !reserveMatches.isEmpty {
-            return reserveMatches
-        }
-
-        return matches(secondary)
+        return uniqueCells(matches(primary) + matches(reserve) + matches(secondary))
     }
 
     private static func hasBalancedHoleCoverage(_ holes: [CGPoint], layout: MazeLayout) -> Bool {
-        let zones = Set(holes.map { holeZone(for: $0, layout: layout) })
-        let rowBands = Set(zones.map(\.rowBand))
-        let columnBands = Set(zones.map(\.columnBand))
+        guard holes.count >= 5, holes.count <= 7 else { return false }
 
-        return rowBands.count >= min(3, layout.rows) &&
-            columnBands.count >= min(2, layout.columns) &&
-            zones.count >= min(4, holes.count)
+        let zoneCounts = Dictionary(grouping: holes, by: { holeZone(for: $0, layout: layout) }).mapValues(\.count)
+        guard zoneCounts.count == holes.count else { return false }
+        guard zoneCounts.values.allSatisfy({ $0 == 1 }) else { return false }
+
+        let rowCoverage = Set(zoneCounts.keys.map(\.rowBand))
+        let columnCoverage = Set(zoneCounts.keys.map(\.columnBand))
+
+        return rowCoverage.count == 3 && columnCoverage.count == 3
+    }
+
+    private static func hasRelaxedHoleCoverage(_ holes: [CGPoint], layout: MazeLayout) -> Bool {
+        let zoneCounts = Dictionary(grouping: holes, by: { holeZone(for: $0, layout: layout) }).mapValues(\.count)
+        let rowCoverage = Set(zoneCounts.keys.map(\.rowBand))
+        let columnCoverage = Set(zoneCounts.keys.map(\.columnBand))
+
+        return zoneCounts.count >= min(holes.count, 4) && rowCoverage.count >= 2 && columnCoverage.count >= 2
     }
 
     private static func holeZone(for cell: MazeCell, layout: MazeLayout) -> HoleZone {
@@ -681,7 +888,11 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
     }
 
     private static func holeZone(for point: CGPoint, layout: MazeLayout) -> HoleZone {
-        HoleZone(
+        if let cell = cellContaining(point: point, layout: layout) {
+            return holeZone(for: cell, layout: layout)
+        }
+
+        return HoleZone(
             columnBand: bandIndex(
                 forValue: point.x,
                 minValue: layout.innerRect.minX,
@@ -695,6 +906,320 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
                 bands: 3
             )
         )
+    }
+
+    private static func quadrantZone(for cell: MazeCell, layout: MazeLayout) -> HoleZone {
+        HoleZone(
+            columnBand: bandIndex(forOrdinal: cell.column, count: layout.columns, bands: 2),
+            rowBand: bandIndex(forOrdinal: cell.row, count: layout.rows, bands: 2)
+        )
+    }
+
+    private static func quadrantZone(for point: CGPoint, layout: MazeLayout) -> HoleZone {
+        if let cell = cellContaining(point: point, layout: layout) {
+            return quadrantZone(for: cell, layout: layout)
+        }
+
+        return HoleZone(
+            columnBand: bandIndex(forValue: point.x, minValue: layout.innerRect.minX, maxValue: layout.innerRect.maxX, bands: 2),
+            rowBand: bandIndex(forValue: point.y, minValue: layout.innerRect.minY, maxValue: layout.innerRect.maxY, bands: 2)
+        )
+    }
+
+    private static func stripeZone(for cell: MazeCell, layout: MazeLayout) -> HoleZone {
+        HoleZone(
+            columnBand: bandIndex(forOrdinal: cell.column, count: layout.columns, bands: 2),
+            rowBand: bandIndex(forOrdinal: cell.row, count: layout.rows, bands: 3)
+        )
+    }
+
+    private static func stripeZone(for point: CGPoint, layout: MazeLayout) -> HoleZone {
+        if let cell = cellContaining(point: point, layout: layout) {
+            return stripeZone(for: cell, layout: layout)
+        }
+
+        return HoleZone(
+            columnBand: bandIndex(forValue: point.x, minValue: layout.innerRect.minX, maxValue: layout.innerRect.maxX, bands: 2),
+            rowBand: bandIndex(forValue: point.y, minValue: layout.innerRect.minY, maxValue: layout.innerRect.maxY, bands: 3)
+        )
+    }
+
+    private static func allQuadrants() -> [HoleZone] {
+        [
+            HoleZone(columnBand: 0, rowBand: 0),
+            HoleZone(columnBand: 1, rowBand: 0),
+            HoleZone(columnBand: 0, rowBand: 1),
+            HoleZone(columnBand: 1, rowBand: 1)
+        ]
+    }
+
+    private static func allStripeZones() -> [HoleZone] {
+        [
+            HoleZone(columnBand: 0, rowBand: 0),
+            HoleZone(columnBand: 1, rowBand: 0),
+            HoleZone(columnBand: 0, rowBand: 1),
+            HoleZone(columnBand: 1, rowBand: 1),
+            HoleZone(columnBand: 0, rowBand: 2),
+            HoleZone(columnBand: 1, rowBand: 2)
+        ]
+    }
+
+    private static func allHoleGridZones() -> [HoleZone] {
+        (0..<3).flatMap { rowBand in
+            (0..<3).map { columnBand in
+                HoleZone(columnBand: columnBand, rowBand: rowBand)
+            }
+        }
+    }
+
+    private static func shuffled<T>(_ values: [T], random: inout SeededGenerator) -> [T] {
+        var copy = values
+        shuffleInPlace(&copy, random: &random)
+        return copy
+    }
+
+    private static func hasBalancedWallCoverage(_ wallRects: [CGRect], layout: MazeLayout) -> Bool {
+        allQuadrants().allSatisfy { quadrant in
+            let quadrantRect = zoneRect(for: quadrant, layout: layout, bands: 2)
+            return wallRects.contains { !$0.intersection(quadrantRect).isNull }
+        }
+    }
+
+    private static func hasCriticalTurnTrap(
+        _ holes: [CGPoint],
+        layout: MazeLayout,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        solutionCells: Set<MazeCell>
+    ) -> Bool {
+        holes.contains { hole in
+            guard let cell = cellContaining(point: hole, layout: layout) else { return false }
+            return isTurnCell(adjacency[cell, default: []]) &&
+                isCriticalTurnTrapCell(cell, adjacency: adjacency, solutionCells: solutionCells, layout: layout)
+        }
+    }
+
+    private static func hasAnyMeaningfulHazard(
+        _ holes: [CGPoint],
+        layout: MazeLayout,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        solutionCells: Set<MazeCell>
+    ) -> Bool {
+        holes.contains { hole in
+            guard let cell = cellContaining(point: hole, layout: layout) else { return false }
+            let openDirections = adjacency[cell, default: []]
+            return isTurnCell(openDirections) ||
+                openDirections.count >= 3 ||
+                isConnectedToSolution(cell, adjacency: adjacency, solutionCells: solutionCells, layout: layout)
+        }
+    }
+
+    private static func isHoleNearWalls(_ point: CGPoint, wallRects: [CGRect], maxDistance: CGFloat) -> Bool {
+        wallRects.contains { distanceFromPoint(point, to: $0) <= maxDistance }
+    }
+
+    private static func preferredHolePoint(
+        for cell: MazeCell,
+        layout: MazeLayout,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        solutionCells: Set<MazeCell>,
+        holeRadius: CGFloat,
+        random: inout SeededGenerator
+    ) -> CGPoint? {
+        let cellRect = layout.rect(for: cell)
+        let insetRect = cellRect.insetBy(dx: holeRadius + 18, dy: holeRadius + 18)
+        guard insetRect.width > 0, insetRect.height > 0 else { return nil }
+
+        let openDirections = adjacency[cell, default: []]
+        let closedDirections = MazeDirection.allCases.filter { !openDirections.contains($0) }
+        let degree = openDirections.count
+
+        let anchor: CGPoint
+        if isTurnCell(openDirections), let corner = cornerAnchor(for: openDirections) {
+            anchor = point(for: corner, in: insetRect)
+        } else if degree >= 3 {
+            if let closedDirection = closedDirections.first {
+                anchor = point(along: closedDirection, in: insetRect, fraction: random.nextCGFloat(in: 0.34...0.66))
+            } else {
+                let corners = [
+                    CornerAnchor(horizontal: 0, vertical: 0),
+                    CornerAnchor(horizontal: 0, vertical: 1),
+                    CornerAnchor(horizontal: 1, vertical: 0),
+                    CornerAnchor(horizontal: 1, vertical: 1)
+                ]
+                anchor = point(for: corners[random.nextInt(in: 0...(corners.count - 1))], in: insetRect)
+            }
+        } else if degree == 1, let openDirection = openDirections.first {
+            anchor = point(along: openDirection.opposite, in: insetRect, fraction: random.nextCGFloat(in: 0.36...0.64))
+        } else if let closedDirection = closedDirections.first {
+            anchor = point(along: closedDirection, in: insetRect, fraction: random.nextCGFloat(in: 0.30...0.70))
+        } else {
+            anchor = CGPoint(x: insetRect.midX, y: insetRect.midY)
+        }
+
+        return jittered(
+            point: anchor,
+            inside: insetRect,
+            random: &random,
+            amount: min(10, min(insetRect.width, insetRect.height) * 0.12)
+        )
+    }
+
+    private static func isTurnCell(_ openDirections: Set<MazeDirection>) -> Bool {
+        guard openDirections.count == 2 else { return false }
+        return !(
+            openDirections.contains(.north) && openDirections.contains(.south) ||
+            openDirections.contains(.east) && openDirections.contains(.west)
+        )
+    }
+
+    private static func isConnectedToSolution(
+        _ cell: MazeCell,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        solutionCells: Set<MazeCell>,
+        layout: MazeLayout
+    ) -> Bool {
+        for direction in adjacency[cell, default: []] {
+            guard let neighborCell = neighbor(of: cell, direction: direction, layout: layout) else { continue }
+            if solutionCells.contains(neighborCell) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func isCriticalTurnTrapCell(
+        _ cell: MazeCell,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        solutionCells: Set<MazeCell>,
+        layout: MazeLayout
+    ) -> Bool {
+        guard isTurnCell(adjacency[cell, default: []]) else { return false }
+        return isConnectedToSolution(cell, adjacency: adjacency, solutionCells: solutionCells, layout: layout)
+    }
+
+    private static func cellContaining(point: CGPoint, layout: MazeLayout) -> MazeCell? {
+        layout.allCells.first { layout.rect(for: $0).contains(point) }
+    }
+
+    private static func cornerAnchor(for openDirections: Set<MazeDirection>) -> CornerAnchor? {
+        switch openDirections {
+        case [.north, .east]:
+            return CornerAnchor(horizontal: 1, vertical: 1)
+        case [.north, .west]:
+            return CornerAnchor(horizontal: 0, vertical: 1)
+        case [.south, .east]:
+            return CornerAnchor(horizontal: 1, vertical: 0)
+        case [.south, .west]:
+            return CornerAnchor(horizontal: 0, vertical: 0)
+        default:
+            return nil
+        }
+    }
+
+    private static func point(for anchor: CornerAnchor, in rect: CGRect) -> CGPoint {
+        let insetX = min(10, rect.width * 0.18)
+        let insetY = min(10, rect.height * 0.18)
+        return CGPoint(
+            x: anchor.horizontal == 0 ? rect.minX + insetX : rect.maxX - insetX,
+            y: anchor.vertical == 0 ? rect.minY + insetY : rect.maxY - insetY
+        )
+    }
+
+    private static func point(along direction: MazeDirection, in rect: CGRect, fraction: CGFloat) -> CGPoint {
+        let edgeInsetX = min(10, rect.width * 0.16)
+        let edgeInsetY = min(10, rect.height * 0.16)
+        switch direction {
+        case .north:
+            return CGPoint(x: rect.minX + rect.width * fraction, y: rect.maxY - edgeInsetY)
+        case .east:
+            return CGPoint(x: rect.maxX - edgeInsetX, y: rect.minY + rect.height * fraction)
+        case .south:
+            return CGPoint(x: rect.minX + rect.width * fraction, y: rect.minY + edgeInsetY)
+        case .west:
+            return CGPoint(x: rect.minX + edgeInsetX, y: rect.minY + rect.height * fraction)
+        }
+    }
+
+    private static func jittered(
+        point: CGPoint,
+        inside rect: CGRect,
+        random: inout SeededGenerator,
+        amount: CGFloat
+    ) -> CGPoint {
+        CGPoint(
+            x: max(rect.minX, min(rect.maxX, point.x + random.nextCGFloat(in: -amount...amount))),
+            y: max(rect.minY, min(rect.maxY, point.y + random.nextCGFloat(in: -amount...amount)))
+        )
+    }
+
+    private static func zoneRect(for zone: HoleZone, layout: MazeLayout, bands: Int) -> CGRect {
+        let width = layout.innerRect.width / CGFloat(bands)
+        let height = layout.innerRect.height / CGFloat(bands)
+        return CGRect(
+            x: layout.innerRect.minX + CGFloat(zone.columnBand) * width,
+            y: layout.innerRect.minY + CGFloat(zone.rowBand) * height,
+            width: width,
+            height: height
+        )
+    }
+
+    private static func distanceFromPoint(_ point: CGPoint, to rect: CGRect) -> CGFloat {
+        let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
+        let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
+        return hypot(dx, dy)
+    }
+
+    private static func uniqueCells(_ cells: [MazeCell]) -> [MazeCell] {
+        var seen: Set<MazeCell> = []
+        var result: [MazeCell] = []
+
+        for cell in cells where seen.insert(cell).inserted {
+            result.append(cell)
+        }
+
+        return result
+    }
+
+    private static func leastPopulatedQuadrants(
+        from candidates: [MazeCell],
+        selected: [MazeCell],
+        layout: MazeLayout
+    ) -> Set<HoleZone> {
+        guard !candidates.isEmpty else { return [] }
+
+        let selectedCounts = Dictionary(grouping: selected, by: { quadrantZone(for: $0, layout: layout) }).mapValues(\.count)
+        let candidateQuadrants = Set(candidates.map { quadrantZone(for: $0, layout: layout) })
+        let minimumCount = candidateQuadrants.map { selectedCounts[$0, default: 0] }.min() ?? 0
+
+        return Set(candidateQuadrants.filter { selectedCounts[$0, default: 0] == minimumCount })
+    }
+
+    private static func leastPopulatedStripes(
+        from candidates: [MazeCell],
+        selected: [CGPoint],
+        layout: MazeLayout
+    ) -> Set<HoleZone> {
+        guard !candidates.isEmpty else { return [] }
+
+        let selectedCounts = Dictionary(grouping: selected, by: { stripeZone(for: $0, layout: layout) }).mapValues(\.count)
+        let candidateStripes = Set(candidates.map { stripeZone(for: $0, layout: layout) })
+        let minimumCount = candidateStripes.map { selectedCounts[$0, default: 0] }.min() ?? 0
+
+        return Set(candidateStripes.filter { selectedCounts[$0, default: 0] == minimumCount })
+    }
+
+    private static func leastPopulatedZones(
+        from candidates: [MazeCell],
+        selected: [CGPoint],
+        layout: MazeLayout
+    ) -> Set<HoleZone> {
+        guard !candidates.isEmpty else { return [] }
+
+        let selectedCounts = Dictionary(grouping: selected, by: { holeZone(for: $0, layout: layout) }).mapValues(\.count)
+        let candidateZones = Set(candidates.map { holeZone(for: $0, layout: layout) })
+        let minimumCount = candidateZones.map { selectedCounts[$0, default: 0] }.min() ?? 0
+
+        return Set(candidateZones.filter { selectedCounts[$0, default: 0] == minimumCount })
     }
 
     private static func bandIndex(forOrdinal ordinal: Int, count: Int, bands: Int) -> Int {
