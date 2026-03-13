@@ -58,6 +58,11 @@ final class MarbleTiltController: ObservableObject {
         motionManager.stopDeviceMotionUpdates()
     }
 
+    func refresh() {
+        motionManager.stopDeviceMotionUpdates()
+        start()
+    }
+
     func updateFallbackTilt(x: Double, y: Double) {
         isUsingFallback = true
         publish(rawX: CGFloat(x), rawY: CGFloat(y))

@@ -1,4 +1,3 @@
-import ObjectiveC.runtime
 import SwiftUI
 import UIKit
 
@@ -9,49 +8,46 @@ final class MarbleOrientationAppDelegate: NSObject, UIApplicationDelegate {
 }
 
 enum MarbleOrientationLock {
-    static var currentMask: UIInterfaceOrientationMask = .all
+    static let appDefaultMask: UIInterfaceOrientationMask = orientationMaskFromInfoPlist() ?? .all
+    static let gameplayMask: UIInterfaceOrientationMask = .landscapeRight
     static let gameplayOrientation: UIInterfaceOrientation = .landscapeRight
 
-    fileprivate static var isGameplayLocked = false
+    static var currentMask: UIInterfaceOrientationMask = appDefaultMask
 
-    private static var didInstallRotationHooks = false
-    private static var swizzledSelectors: Set<String> = []
-
-    static func lockGameplayOrientation() {
-        installRotationHooksIfNeeded()
-        isGameplayLocked = true
-        currentMask = .landscapeRight
-        enforceLockedOrientation()
-    }
-
-    static func unlockAppOrientation() {
-        isGameplayLocked = false
-        currentMask = .all
-        requestRotation(mask: .all, preferredOrientation: nil)
-    }
-
-    private static func enforceLockedOrientation() {
-        requestRotation(mask: .landscapeRight, preferredOrientation: gameplayOrientation)
-    }
-
-    private static func requestRotation(mask: UIInterfaceOrientationMask, preferredOrientation: UIInterfaceOrientation?) {
-        guard let windowScene = activeWindowScene() else {
-            return
+    static func lockGameplayOrientation(for controller: UIViewController) {
+        currentMask = gameplayMask
+        controller.setNeedsUpdateOfSupportedInterfaceOrientations()
+        if #available(iOS 16.0, *) {
+            controller.setNeedsUpdateOfPrefersInterfaceOrientationLocked()
         }
 
-        if let preferredOrientation {
-            UIDevice.current.setValue(preferredOrientation.rawValue, forKey: "orientation")
-        }
+        UIDevice.current.setValue(gameplayOrientation.rawValue, forKey: "orientation")
+        requestGeometryUpdate(for: controller, mask: gameplayMask)
+    }
 
-        refreshOrientationControllers(in: windowScene)
+    static func unlockAppOrientation(from controller: UIViewController?) {
+        currentMask = appDefaultMask
+        controller?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        if #available(iOS 16.0, *) {
+            controller?.setNeedsUpdateOfPrefersInterfaceOrientationLocked()
+        }
+        requestGeometryUpdate(for: controller, mask: appDefaultMask)
+    }
+
+    private static func requestGeometryUpdate(for controller: UIViewController?, mask: UIInterfaceOrientationMask) {
+        let scene = controller?.view.window?.windowScene ?? activeWindowScene()
+        guard let scene else { return }
 
         if #available(iOS 16.0, *) {
             let preferences = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: mask)
-            windowScene.requestGeometryUpdate(preferences) { _ in }
+            scene.requestGeometryUpdate(preferences) { _ in }
         }
-
-        refreshOrientationControllers(in: windowScene)
-        UIViewController.attemptRotationToDeviceOrientation()
+        for window in scene.windows {
+            window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+            if #available(iOS 16.0, *) {
+                window.rootViewController?.setNeedsUpdateOfPrefersInterfaceOrientationLocked()
+            }
+        }
     }
 
     private static func activeWindowScene() -> UIWindowScene? {
@@ -68,108 +64,191 @@ enum MarbleOrientationLock {
         return scenes.first(where: { $0.activationState == .foregroundInactive })
     }
 
-    private static func refreshOrientationControllers(in windowScene: UIWindowScene) {
-        for window in windowScene.windows {
-            window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-            window.rootViewController?.navigationController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-            window.rootViewController?.children.forEach { $0.setNeedsUpdateOfSupportedInterfaceOrientations() }
-        }
-    }
+    private static func orientationMaskFromInfoPlist() -> UIInterfaceOrientationMask? {
+        let info = Bundle.main.infoDictionary
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        let key = isPad ? "UISupportedInterfaceOrientations~ipad" : "UISupportedInterfaceOrientations"
+        let fallbackKey = "UISupportedInterfaceOrientations"
+        let rawValues = (info?[key] as? [String]) ?? (info?[fallbackKey] as? [String])
+        guard let rawValues, !rawValues.isEmpty else { return nil }
 
-    private static func installRotationHooksIfNeeded() {
-        guard !didInstallRotationHooks else { return }
-        didInstallRotationHooks = true
-
-        swizzle(
-            on: UIViewController.self,
-            original: #selector(getter: UIViewController.shouldAutorotate),
-            replacement: #selector(UIViewController.marble_shouldAutorotate)
-        )
-
-        swizzle(
-            on: UIViewController.self,
-            original: #selector(getter: UIViewController.supportedInterfaceOrientations),
-            replacement: #selector(UIViewController.marble_supportedInterfaceOrientations)
-        )
-
-        swizzle(
-            on: UIViewController.self,
-            original: #selector(getter: UIViewController.preferredInterfaceOrientationForPresentation),
-            replacement: #selector(UIViewController.marble_preferredInterfaceOrientationForPresentation)
-        )
-
-        swizzle(
-            on: UINavigationController.self,
-            original: #selector(getter: UIViewController.shouldAutorotate),
-            replacement: #selector(UINavigationController.marble_shouldAutorotate)
-        )
-
-        swizzle(
-            on: UINavigationController.self,
-            original: #selector(getter: UIViewController.supportedInterfaceOrientations),
-            replacement: #selector(UINavigationController.marble_supportedInterfaceOrientations)
-        )
-
-        swizzle(
-            on: UINavigationController.self,
-            original: #selector(getter: UIViewController.preferredInterfaceOrientationForPresentation),
-            replacement: #selector(UINavigationController.marble_preferredInterfaceOrientationForPresentation)
-        )
-    }
-
-    private static func swizzle(on type: AnyClass, original: Selector, replacement: Selector) {
-        let key = "\(NSStringFromClass(type))|\(NSStringFromSelector(original))"
-        guard !swizzledSelectors.contains(key) else { return }
-
-        guard
-            let originalMethod = class_getInstanceMethod(type, original),
-            let replacementMethod = class_getInstanceMethod(UIViewController.self, replacement)
-        else { return }
-
-        let added = class_addMethod(
-            type,
-            original,
-            method_getImplementation(replacementMethod),
-            method_getTypeEncoding(replacementMethod)
-        )
-
-        if added {
-            class_replaceMethod(
-                type,
-                replacement,
-                method_getImplementation(originalMethod),
-                method_getTypeEncoding(originalMethod)
-            )
-        } else {
-            method_exchangeImplementations(originalMethod, replacementMethod)
+        var mask: UIInterfaceOrientationMask = []
+        for rawValue in rawValues {
+            switch rawValue {
+            case "UIInterfaceOrientationPortrait":
+                mask.insert(.portrait)
+            case "UIInterfaceOrientationPortraitUpsideDown":
+                mask.insert(.portraitUpsideDown)
+            case "UIInterfaceOrientationLandscapeLeft":
+                mask.insert(.landscapeLeft)
+            case "UIInterfaceOrientationLandscapeRight":
+                mask.insert(.landscapeRight)
+            default:
+                continue
+            }
         }
 
-        swizzledSelectors.insert(key)
+        return mask.isEmpty ? nil : mask
     }
 }
 
-private extension UIViewController {
-    @objc func marble_shouldAutorotate() -> Bool {
-        if MarbleOrientationLock.isGameplayLocked {
-            return false
-        }
+struct MarbleLabyrinthGameControllerContainer: UIViewControllerRepresentable {
+    let difficulty: Difficulty
+    let startImmediately: Bool
+    let onExit: () -> Void
+    let onBackToHub: () -> Void
 
-        return marble_shouldAutorotate()
+    func makeUIViewController(context: Context) -> MarbleLabyrinthGameEntryController {
+        MarbleLabyrinthGameEntryController(
+            difficulty: difficulty,
+            startImmediately: startImmediately,
+            onExit: onExit,
+            onBackToHub: onBackToHub
+        )
     }
 
-    @objc func marble_supportedInterfaceOrientations() -> UIInterfaceOrientationMask {
-        if MarbleOrientationLock.isGameplayLocked {
-            return MarbleOrientationLock.currentMask
-        }
+    func updateUIViewController(_ uiViewController: MarbleLabyrinthGameEntryController, context: Context) {
+        uiViewController.updateConfiguration(
+            difficulty: difficulty,
+            startImmediately: startImmediately,
+            onExit: onExit,
+            onBackToHub: onBackToHub
+        )
+    }
+}
 
-        return marble_supportedInterfaceOrientations()
+final class MarbleLabyrinthGameEntryController: UIViewController {
+    private var difficulty: Difficulty
+    private var startImmediately: Bool
+    private var onExit: () -> Void
+    private var onBackToHub: () -> Void
+
+    private weak var presentedGameController: MarbleLabyrinthGameHostingController?
+    private var isPresentingGame = false
+    private var didFinishSession = false
+
+    init(
+        difficulty: Difficulty,
+        startImmediately: Bool,
+        onExit: @escaping () -> Void,
+        onBackToHub: @escaping () -> Void
+    ) {
+        self.difficulty = difficulty
+        self.startImmediately = startImmediately
+        self.onExit = onExit
+        self.onBackToHub = onBackToHub
+        super.init(nibName: nil, bundle: nil)
     }
 
-    @objc func marble_preferredInterfaceOrientationForPresentation() -> UIInterfaceOrientation {
-        if MarbleOrientationLock.isGameplayLocked {
-            return MarbleOrientationLock.gameplayOrientation
-        }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
-        return marble_preferredInterfaceOrientationForPresentation()
+    override func loadView() {
+        view = UIView(frame: .zero)
+        view.backgroundColor = .clear
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        presentGameIfNeeded()
+    }
+
+    func updateConfiguration(
+        difficulty: Difficulty,
+        startImmediately: Bool,
+        onExit: @escaping () -> Void,
+        onBackToHub: @escaping () -> Void
+    ) {
+        self.difficulty = difficulty
+        self.startImmediately = startImmediately
+        self.onExit = onExit
+        self.onBackToHub = onBackToHub
+        presentedGameController?.rootView = makeRootView()
+    }
+
+    private func presentGameIfNeeded() {
+        guard presentedViewController == nil, !isPresentingGame, !didFinishSession else { return }
+        isPresentingGame = true
+
+        let controller = MarbleLabyrinthGameHostingController(rootView: makeRootView())
+        controller.modalPresentationStyle = .fullScreen
+        controller.isModalInPresentation = true
+        presentedGameController = controller
+
+        present(controller, animated: false) { [weak self] in
+            self?.isPresentingGame = false
+        }
+    }
+
+    private func makeRootView() -> MarbleLabyrinthPOCView {
+        MarbleLabyrinthPOCView(
+            difficulty: difficulty,
+            startImmediately: startImmediately,
+            onExit: { [weak self] in
+                self?.finishSession(backToHub: false)
+            },
+            onBackToHub: { [weak self] in
+                self?.finishSession(backToHub: true)
+            }
+        )
+    }
+
+    private func finishSession(backToHub: Bool) {
+        guard !didFinishSession else { return }
+        didFinishSession = true
+
+        let completion = backToHub ? onBackToHub : onExit
+
+        if let gameController = presentedGameController, gameController.presentingViewController != nil {
+            gameController.dismiss(animated: true) { [weak self] in
+                self?.presentedGameController = nil
+                completion()
+            }
+        } else {
+            completion()
+        }
+    }
+}
+
+final class MarbleLabyrinthGameHostingController: UIHostingController<MarbleLabyrinthPOCView> {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        MarbleOrientationLock.gameplayMask
+    }
+
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        MarbleOrientationLock.gameplayOrientation
+    }
+
+    override var shouldAutorotate: Bool {
+        false
+    }
+
+    @available(iOS 16.0, *)
+    override var prefersInterfaceOrientationLocked: Bool {
+        true
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        MarbleOrientationLock.lockGameplayOrientation(for: self)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        MarbleOrientationLock.lockGameplayOrientation(for: self)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        let leavingGame = isBeingDismissed || isMovingFromParent || navigationController?.isBeingDismissed == true
+        if leavingGame {
+            MarbleOrientationLock.unlockAppOrientation(from: self)
+        }
+    }
+
+    deinit {
+        MarbleOrientationLock.unlockAppOrientation(from: nil)
     }
 }

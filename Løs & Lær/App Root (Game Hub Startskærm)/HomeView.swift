@@ -1,6 +1,7 @@
 //  HomeView.swift
 
 import SwiftUI
+import UIKit
 // Comment IAP 03-04-2026
 
 struct HomeView: View {
@@ -48,13 +49,32 @@ struct HomeView: View {
             GameTile(id: "labyrinth_abc", iconName: "icon_labyrinth_abc", selection: .labyrinthLetters),
             GameTile(id: "labyrinth_math", iconName: "icon_labyrinth_math", selection: .labyrinthMath),
             GameTile(id: "labyrinth_word", iconName: "icon_labyrinth_word", selection: .labyrinthWords),
-            GameTile(id: "marble_labyrinth_poc", symbolName: "circle.circle.fill", title: "Kuglebane", selection: .marbleLabyrinthPOC, isHighlighted: true),
+            marbleLabyrinthTile,
             GameTile(id: "clock", iconName: "icon_clock", selection: .clock),
             GameTile(id: "animals", iconName: "icon_animals", selection: .animals),
             GameTile(id: "tictactoe", iconName: "icon_tictactoe", selection: .ticTacToe),
             GameTile(id: "memory", iconName: "icon_MemoryMatchView_animal", selection: .memoryMatch),
             GameTile(id: "guess", iconName: "icon_guess_animal", selection: .guessAnimal)
         ]
+    }
+
+    private var marbleLabyrinthTile: GameTile {
+        if UIImage(named: "icon_marble_labyrinth") != nil {
+            return GameTile(
+                id: "marble_labyrinth_poc",
+                iconName: "icon_marble_labyrinth",
+                selection: .marbleLabyrinthPOC,
+                isHighlighted: true
+            )
+        }
+
+        return GameTile(
+            id: "marble_labyrinth_poc",
+            symbolName: "circle.circle.fill",
+            title: "Kuglebane",
+            selection: .marbleLabyrinthPOC,
+            isHighlighted: true
+        )
     }
 
     // iPhone original-style list: fixed tiles in pairs, including All Games as normal tile.

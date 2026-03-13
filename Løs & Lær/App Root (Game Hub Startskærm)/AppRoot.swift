@@ -92,12 +92,13 @@ struct ContentView: View {
                 )
 
             case .marbleLabyrinthPOC:
-                MarbleLabyrinthPOCView(
+                MarbleLabyrinthGameControllerContainer(
                     difficulty: difficulty,
                     startImmediately: false,
                     onExit: { selectedGame = .none },
                     onBackToHub: { selectedGame = .none }
                 )
+                .ignoresSafeArea()
 
             case .animals:
                 AnimalGameView(
