@@ -17,13 +17,26 @@ struct HomeView: View {
 
     private struct GameTile: Identifiable {
         let id: String
-        let iconName: String
+        let iconName: String?
+        let symbolName: String?
+        let title: String?
         let selection: GameSelection
         let isHighlighted: Bool
 
         init(id: String, iconName: String, selection: GameSelection, isHighlighted: Bool = false) {
             self.id = id
             self.iconName = iconName
+            self.symbolName = nil
+            self.title = nil
+            self.selection = selection
+            self.isHighlighted = isHighlighted
+        }
+
+        init(id: String, symbolName: String, title: String, selection: GameSelection, isHighlighted: Bool = false) {
+            self.id = id
+            self.iconName = nil
+            self.symbolName = symbolName
+            self.title = title
             self.selection = selection
             self.isHighlighted = isHighlighted
         }
@@ -35,6 +48,7 @@ struct HomeView: View {
             GameTile(id: "labyrinth_abc", iconName: "icon_labyrinth_abc", selection: .labyrinthLetters),
             GameTile(id: "labyrinth_math", iconName: "icon_labyrinth_math", selection: .labyrinthMath),
             GameTile(id: "labyrinth_word", iconName: "icon_labyrinth_word", selection: .labyrinthWords),
+            GameTile(id: "marble_labyrinth_poc", symbolName: "circle.circle.fill", title: "Kuglebane", selection: .marbleLabyrinthPOC, isHighlighted: true),
             GameTile(id: "clock", iconName: "icon_clock", selection: .clock),
             GameTile(id: "animals", iconName: "icon_animals", selection: .animals),
             GameTile(id: "tictactoe", iconName: "icon_tictactoe", selection: .ticTacToe),
@@ -260,6 +274,8 @@ struct HomeView: View {
                         ForEach(iPadCarouselTiles) { tile in
                             IconTileButton(
                                 iconName: tile.iconName,
+                                symbolName: tile.symbolName,
+                                title: tile.title,
                                 tileSize: layout.shelfTileSize,
                                 isHighlighted: tile.isHighlighted
                             ) {
@@ -358,7 +374,12 @@ struct HomeView: View {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: layout.gridSpacing) {
                     ForEach(row) { tile in
-                        IconTileButton(iconName: tile.iconName, tileSize: layout.tileSize) {
+                        IconTileButton(
+                            iconName: tile.iconName,
+                            symbolName: tile.symbolName,
+                            title: tile.title,
+                            tileSize: layout.tileSize
+                        ) {
                             handleTileTap(tile)
                         }
                     }
@@ -481,21 +502,83 @@ private struct PressScaleButtonStyle: ButtonStyle {
 }
 
 struct IconTileButton: View {
-    let iconName: String
+    let iconName: String?
+    let symbolName: String?
+    let title: String?
     let tileSize: CGFloat
     var isHighlighted: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(iconName)
-                .resizable()
-                .scaledToFit()
+            tileContent
                 .frame(width: tileSize, height: tileSize)
                 .padding(4)
                 .background(highlightBackground)
         }
         .buttonStyle(PressScaleButtonStyle())
+    }
+
+    @ViewBuilder
+    private var tileContent: some View {
+        if let iconName {
+            Image(iconName)
+                .resizable()
+                .scaledToFit()
+        } else {
+            customPrototypeTile
+        }
+    }
+
+    private var customPrototypeTile: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: tileSize * 0.22, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.92, green: 0.82, blue: 0.63), Color(red: 0.79, green: 0.61, blue: 0.40)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            RoundedRectangle(cornerRadius: tileSize * 0.22, style: .continuous)
+                .stroke(Color.white.opacity(0.68), lineWidth: 1.8)
+
+            RoundedRectangle(cornerRadius: tileSize * 0.14, style: .continuous)
+                .stroke(Color(red: 0.55, green: 0.39, blue: 0.20), lineWidth: tileSize * 0.06)
+                .padding(tileSize * 0.15)
+
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.white, Color(red: 0.74, green: 0.81, blue: 0.90)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: tileSize * 0.22, height: tileSize * 0.22)
+                .overlay(Circle().stroke(Color.white.opacity(0.72), lineWidth: 1.5))
+                .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+                .offset(x: tileSize * 0.11, y: -tileSize * 0.08)
+
+            if let symbolName {
+                Image(systemName: symbolName)
+                    .font(.system(size: tileSize * 0.16, weight: .bold))
+                    .foregroundColor(Color(red: 0.43, green: 0.28, blue: 0.13).opacity(0.35))
+                    .offset(x: -tileSize * 0.18, y: -tileSize * 0.14)
+            }
+
+            if let title {
+                Text(title)
+                    .font(.system(size: tileSize * 0.11, weight: .heavy, design: .rounded))
+                    .foregroundColor(Color(red: 0.24, green: 0.17, blue: 0.09))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .frame(width: tileSize * 0.72)
+                    .offset(y: tileSize * 0.29)
+            }
+        }
     }
 
     @ViewBuilder
