@@ -14,6 +14,7 @@ enum GameSelection: CaseIterable {
     case labyrinthLetters
     case labyrinthMath
     case labyrinthWords
+    case marbleLabyrinthPOC
     case clock
     case animals
     case ticTacToe
@@ -86,6 +87,14 @@ struct ContentView: View {
                     randomizeInternalModes: false,
                     startImmediately: false,
                     initialMode: .words,
+                    onExit: { selectedGame = .none },
+                    onBackToHub: { selectedGame = .none }
+                )
+
+            case .marbleLabyrinthPOC:
+                MarbleLabyrinthPOCView(
+                    difficulty: difficulty,
+                    startImmediately: false,
                     onExit: { selectedGame = .none },
                     onBackToHub: { selectedGame = .none }
                 )
