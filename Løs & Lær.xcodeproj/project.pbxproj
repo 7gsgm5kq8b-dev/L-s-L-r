@@ -430,7 +430,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.kids-games";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Appen bruger mikrofonen, så barnet kan svare mundtligt, når det gætter dyret i spillet. ";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Appen bruger mikrofonen, så barnet kan svare mundtligt, når det gætter dyret i spillet. Talegenkendelsen gør spillet mere tilgængeligt og interaktivt, især for børn der endnu ikke kan læse eller skrive";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -467,7 +467,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.kids-games";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Appen bruger mikrofonen, så barnet kan svare mundtligt, når det gætter dyret i spillet. ";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Appen bruger mikrofonen, så barnet kan svare mundtligt, når det gætter dyret i spillet. Talegenkendelsen gør spillet mere tilgængeligt og interaktivt, især for børn der endnu ikke kan læse eller skrive";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
