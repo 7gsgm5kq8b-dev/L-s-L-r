@@ -16,12 +16,17 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
     @Published private(set) var sceneReloadToken = UUID()
     @Published private(set) var gameplayHintToken = UUID()
     @Published private(set) var gameplayHintDismissToken = UUID()
+    @Published private(set) var isStartingNextGame = false
 
     let motionController: MarbleTiltController
 
     private static var lastPresentedBoard: MarbleBoardConfiguration?
+    private let nextBoardQueue = DispatchQueue(label: "com.loslær.marble.next-board", qos: .userInitiated)
 
     private var currentBoard: MarbleBoardConfiguration
+    private var preparedNextBoard: MarbleBoardConfiguration?
+    private var preparedNextBoardSourceSeed: UInt64?
+    private var nextBoardGenerationID = 0
     private var cancellables: Set<AnyCancellable> = []
 
     var boardAspectRatio: CGFloat {
@@ -38,6 +43,7 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
         self.scene = MarbleLabyrinthScene(board: board, motionController: controller)
         attachSceneHandler(to: scene)
         Self.lastPresentedBoard = board
+        prepareNextBoard(after: board)
 
         motionController.$debugSample
             .receive(on: DispatchQueue.main)
@@ -68,14 +74,19 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
     }
 
     func startNextGame() {
+        guard !isStartingNextGame else { return }
+        isStartingNextGame = true
+
         let previousBoard = currentBoard
-        let nextBoard = Self.generateFreshBoard(after: previousBoard)
+        let nextBoard = takePreparedNextBoard(after: previousBoard) ?? Self.generateFreshBoard(after: previousBoard)
         phase = .playing
         motionController.refresh()
         currentBoard = nextBoard
         Self.lastPresentedBoard = nextBoard
 
         replaceScene(for: nextBoard)
+        prepareNextBoard(after: nextBoard)
+        isStartingNextGame = false
     }
 
     func resetBoard() {
@@ -100,6 +111,38 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
         scene = newScene
         sceneReloadToken = UUID()
         gameplayHintToken = UUID()
+    }
+
+    private func takePreparedNextBoard(after board: MarbleBoardConfiguration) -> MarbleBoardConfiguration? {
+        guard preparedNextBoardSourceSeed == board.boardSeed, let preparedNextBoard else {
+            return nil
+        }
+
+        self.preparedNextBoard = nil
+        self.preparedNextBoardSourceSeed = nil
+        return preparedNextBoard
+    }
+
+    private func prepareNextBoard(after board: MarbleBoardConfiguration) {
+        nextBoardGenerationID += 1
+        let generationID = nextBoardGenerationID
+        let sourceBoard = board
+
+        preparedNextBoard = nil
+        preparedNextBoardSourceSeed = nil
+
+        nextBoardQueue.async { [weak self] in
+            let nextBoard = Self.generateFreshBoard(after: sourceBoard)
+
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard self.nextBoardGenerationID == generationID else { return }
+                guard self.currentBoard.boardSeed == sourceBoard.boardSeed else { return }
+
+                self.preparedNextBoard = nextBoard
+                self.preparedNextBoardSourceSeed = sourceBoard.boardSeed
+            }
+        }
     }
 
     private static func generateFreshBoard(after previousBoard: MarbleBoardConfiguration?) -> MarbleBoardConfiguration {
@@ -296,10 +339,16 @@ struct MarbleLabyrinthPOCView: View {
                 .frame(width: size.width, height: size.height)
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .shadow(color: .black.opacity(0.05), radius: 14, y: 6)
+                .allowsHitTesting(viewModel.phase != .success)
 
             if viewModel.phase == .success {
+                Color.black.opacity(0.001)
+                    .frame(width: size.width, height: size.height)
+                    .contentShape(Rectangle())
+
                 overlayCard(width: min(size.width * 0.52, 520))
                     .padding(.horizontal, 18)
+                    .zIndex(1)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -330,6 +379,8 @@ struct MarbleLabyrinthPOCView: View {
                     action: viewModel.startNextGame
                 )
                 .padding(.top, 2)
+                .disabled(viewModel.isStartingNextGame)
+                .opacity(viewModel.isStartingNextGame ? 0.72 : 1)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 18)
@@ -512,6 +563,7 @@ struct MarbleLabyrinthPOCView: View {
                     Capsule()
                         .stroke(stroke, lineWidth: 1)
                 )
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
     }
