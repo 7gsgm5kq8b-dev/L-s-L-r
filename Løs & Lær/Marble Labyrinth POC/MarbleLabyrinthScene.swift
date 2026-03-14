@@ -135,6 +135,12 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         let desiredDistance: Int
     }
 
+    private struct StarBranchComponent {
+        let cells: [MazeCell]
+        let attachmentCells: [MazeCell]
+        let depths: [MazeCell: Int]
+    }
+
     private enum BoardValidationMode {
         case strict
         case relaxed
@@ -207,6 +213,7 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         let stars = makeMazeStars(
             random: &random,
             layout: layout,
+            adjacency: adjacency,
             solutionPath: solutionPath,
             holes: holes,
             holeRadius: holeRadius,
@@ -309,6 +316,7 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
     private static func makeMazeStars(
         random: inout SeededGenerator,
         layout: MazeLayout,
+        adjacency: [MazeCell: Set<MazeDirection>],
         solutionPath: [MazeCell],
         holes: [CGPoint],
         holeRadius: CGFloat,
@@ -317,13 +325,11 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
     ) -> [CGPoint] {
         guard solutionPath.count > 3 else { return [] }
 
+        let starCount = 5
         let goalCenter = CGPoint(x: goalRect.midX, y: goalRect.midY)
-        let primaryCandidates = Array(solutionPath.dropFirst(2).dropLast(2))
-        let fallbackCandidates = Array(solutionPath.dropFirst(1).dropLast(1))
-        let rawCandidates = primaryCandidates.isEmpty ? fallbackCandidates : primaryCandidates
-        let uniqueCandidates = uniqueCells(rawCandidates)
+        let solutionCells = Set(solutionPath)
 
-        let candidates = uniqueCandidates.filter { cell in
+        func isValidStarCell(_ cell: MazeCell) -> Bool {
             let rect = layout.rect(for: cell)
             let point = CGPoint(x: rect.midX, y: rect.midY)
             return distance(point, startPosition) > 150 &&
@@ -331,30 +337,128 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
                 holes.allSatisfy { distance(point, $0) > holeRadius + 62 }
         }
 
-        let starCount = 5
-        guard candidates.count >= starCount else { return [] }
+        let branchCandidates = Set(
+            layout.allCells.filter { cell in
+                !solutionCells.contains(cell) && isValidStarCell(cell)
+            }
+        )
+        let branchComponents = makeStarBranchComponents(
+            candidateCells: branchCandidates,
+            solutionCells: solutionCells,
+            adjacency: adjacency,
+            layout: layout
+        )
 
-        var stars: [CGPoint] = []
+        var selectedCells: [MazeCell] = []
+        var selectedPoints: [CGPoint] = []
         var usedCells: Set<MazeCell> = []
+        var usedComponents: Set<Int> = []
+        let minimumSpacing: CGFloat = 118
 
-        for slot in 0..<starCount {
-            let startIndex = Int(CGFloat(slot) * CGFloat(candidates.count) / CGFloat(starCount))
-            let endIndex = max(
-                startIndex,
-                Int(CGFloat(slot + 1) * CGFloat(candidates.count) / CGFloat(starCount)) - 1
-            )
+        while selectedCells.count < starCount && usedComponents.count < branchComponents.count {
+            let candidateCells = branchComponents.enumerated().compactMap { index, component -> MazeCell? in
+                guard !usedComponents.contains(index) else { return nil }
+                return bestStarCell(
+                    from: component.cells,
+                    depths: component.depths,
+                    layout: layout,
+                    adjacency: adjacency,
+                    selectedPoints: selectedPoints,
+                    minimumSpacing: minimumSpacing,
+                    random: &random
+                )
+            }
 
-            let bucket = candidates[startIndex...endIndex].filter { !usedCells.contains($0) }
-            let pool = bucket.isEmpty ? candidates.filter { !usedCells.contains($0) } : Array(bucket)
-            guard !pool.isEmpty else { continue }
-            let cell = pool[random.nextInt(in: 0...(pool.count - 1))]
-            usedCells.insert(cell)
+            let preferredZones = leastPopulatedZones(from: candidateCells, selected: selectedPoints, layout: layout)
+            var scoredBranches: [(componentIndex: Int, cell: MazeCell, score: CGFloat)] = []
 
-            let rect = layout.rect(for: cell)
-            stars.append(CGPoint(x: rect.midX, y: rect.midY))
+            for (index, component) in branchComponents.enumerated() where !usedComponents.contains(index) {
+                guard let cell = bestStarCell(
+                    from: component.cells,
+                    depths: component.depths,
+                    layout: layout,
+                    adjacency: adjacency,
+                    selectedPoints: selectedPoints,
+                    minimumSpacing: minimumSpacing,
+                    preferredZones: preferredZones,
+                    random: &random
+                ) else {
+                    continue
+                }
+
+                let score = starCellScore(
+                    for: cell,
+                    depths: component.depths,
+                    layout: layout,
+                    adjacency: adjacency,
+                    selectedPoints: selectedPoints,
+                    preferredZones: preferredZones
+                ) + CGFloat(component.attachmentCells.count) * 4
+                scoredBranches.append((index, cell, score))
+            }
+
+            guard let selection = chooseScoredBranchStar(scoredBranches, random: &random) else { break }
+            usedComponents.insert(selection.componentIndex)
+            usedCells.insert(selection.cell)
+            selectedCells.append(selection.cell)
+            selectedPoints.append(centerPoint(for: selection.cell, layout: layout))
         }
 
-        return stars
+        if selectedCells.count < starCount {
+            var remainingBranchCells = uniqueCells(
+                branchComponents.flatMap(\.cells).filter { !usedCells.contains($0) }
+            )
+
+            while selectedCells.count < starCount {
+                let preferredZones = leastPopulatedZones(from: remainingBranchCells, selected: selectedPoints, layout: layout)
+                guard let cell = bestSupplementalBranchStarCell(
+                    from: remainingBranchCells,
+                    components: branchComponents,
+                    layout: layout,
+                    adjacency: adjacency,
+                    selectedPoints: selectedPoints,
+                    minimumSpacing: minimumSpacing,
+                    preferredZones: preferredZones,
+                    random: &random
+                ) else {
+                    break
+                }
+
+                usedCells.insert(cell)
+                selectedCells.append(cell)
+                selectedPoints.append(centerPoint(for: cell, layout: layout))
+                remainingBranchCells.removeAll { $0 == cell }
+            }
+        }
+
+        if selectedCells.count < starCount {
+            let routeCandidates = uniqueCells(Array(solutionPath.dropFirst(1).dropLast(1))).filter {
+                !usedCells.contains($0) && isValidStarCell($0)
+            }
+
+            while selectedCells.count < starCount {
+                let preferredZones = leastPopulatedZones(from: routeCandidates, selected: selectedPoints, layout: layout)
+                guard let cell = bestRouteStarCell(
+                    from: routeCandidates,
+                    layout: layout,
+                    adjacency: adjacency,
+                    solutionCells: solutionCells,
+                    selectedPoints: selectedPoints,
+                    minimumSpacing: minimumSpacing,
+                    preferredZones: preferredZones,
+                    random: &random
+                ) else {
+                    break
+                }
+
+                usedCells.insert(cell)
+                selectedCells.append(cell)
+                selectedPoints.append(centerPoint(for: cell, layout: layout))
+            }
+        }
+
+        guard selectedCells.count == starCount else { return [] }
+        return selectedCells.map { centerPoint(for: $0, layout: layout) }
     }
 
     private static func makeMazeLayout(innerRect: CGRect, marbleRadius: CGFloat) -> MazeLayout? {
@@ -1880,6 +1984,230 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         }
 
         return result
+    }
+
+    private static func makeStarBranchComponents(
+        candidateCells: Set<MazeCell>,
+        solutionCells: Set<MazeCell>,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        layout: MazeLayout
+    ) -> [StarBranchComponent] {
+        guard !candidateCells.isEmpty else { return [] }
+
+        var remaining = candidateCells
+        var components: [StarBranchComponent] = []
+
+        while let seed = remaining.first {
+            var stack: [MazeCell] = [seed]
+            var componentCells: [MazeCell] = []
+            remaining.remove(seed)
+
+            while let cell = stack.popLast() {
+                componentCells.append(cell)
+
+                for direction in adjacency[cell, default: []] {
+                    guard let next = neighbor(of: cell, direction: direction, layout: layout),
+                          remaining.contains(next) else {
+                        continue
+                    }
+                    remaining.remove(next)
+                    stack.append(next)
+                }
+            }
+
+            let componentSet = Set(componentCells)
+            let attachmentCells = uniqueCells(componentCells.flatMap { cell in
+                adjacency[cell, default: []].compactMap { direction in
+                    guard let next = neighbor(of: cell, direction: direction, layout: layout),
+                          solutionCells.contains(next) else {
+                        return nil
+                    }
+                    return next
+                }
+            })
+
+            guard !attachmentCells.isEmpty else { continue }
+
+            let entryCells = uniqueCells(componentCells.filter { cell in
+                adjacency[cell, default: []].contains { direction in
+                    guard let next = neighbor(of: cell, direction: direction, layout: layout) else { return false }
+                    return solutionCells.contains(next)
+                }
+            })
+
+            guard !entryCells.isEmpty else { continue }
+
+            var depths = Dictionary(uniqueKeysWithValues: entryCells.map { ($0, 0) })
+            var queue = entryCells
+            var cursor = 0
+
+            while cursor < queue.count {
+                let cell = queue[cursor]
+                cursor += 1
+                let depth = depths[cell, default: 0]
+
+                for direction in adjacency[cell, default: []] {
+                    guard let next = neighbor(of: cell, direction: direction, layout: layout),
+                          componentSet.contains(next),
+                          depths[next] == nil else {
+                        continue
+                    }
+                    depths[next] = depth + 1
+                    queue.append(next)
+                }
+            }
+
+            components.append(
+                StarBranchComponent(
+                    cells: uniqueCells(componentCells),
+                    attachmentCells: attachmentCells,
+                    depths: depths
+                )
+            )
+        }
+
+        return components
+    }
+
+    private static func bestStarCell(
+        from cells: [MazeCell],
+        depths: [MazeCell: Int],
+        layout: MazeLayout,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        selectedPoints: [CGPoint],
+        minimumSpacing: CGFloat,
+        preferredZones: Set<HoleZone> = [],
+        random: inout SeededGenerator
+    ) -> MazeCell? {
+        let candidates = cells.filter { cell in
+            let point = centerPoint(for: cell, layout: layout)
+            return selectedPoints.allSatisfy { distance(point, $0) >= minimumSpacing }
+        }
+
+        guard !candidates.isEmpty else { return nil }
+
+        let scored = candidates.map { cell in
+            (
+                cell: cell,
+                score: starCellScore(
+                    for: cell,
+                    depths: depths,
+                    layout: layout,
+                    adjacency: adjacency,
+                    selectedPoints: selectedPoints,
+                    preferredZones: preferredZones
+                )
+            )
+        }
+
+        return chooseScoredStar(scored, random: &random)?.cell
+    }
+
+    private static func bestSupplementalBranchStarCell(
+        from cells: [MazeCell],
+        components: [StarBranchComponent],
+        layout: MazeLayout,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        selectedPoints: [CGPoint],
+        minimumSpacing: CGFloat,
+        preferredZones: Set<HoleZone>,
+        random: inout SeededGenerator
+    ) -> MazeCell? {
+        let depthLookup = components.reduce(into: [MazeCell: Int]()) { partialResult, component in
+            partialResult.merge(component.depths) { current, new in max(current, new) }
+        }
+
+        return bestStarCell(
+            from: cells,
+            depths: depthLookup,
+            layout: layout,
+            adjacency: adjacency,
+            selectedPoints: selectedPoints,
+            minimumSpacing: minimumSpacing,
+            preferredZones: preferredZones,
+            random: &random
+        )
+    }
+
+    private static func bestRouteStarCell(
+        from cells: [MazeCell],
+        layout: MazeLayout,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        solutionCells: Set<MazeCell>,
+        selectedPoints: [CGPoint],
+        minimumSpacing: CGFloat,
+        preferredZones: Set<HoleZone>,
+        random: inout SeededGenerator
+    ) -> MazeCell? {
+        let filtered = cells.filter { cell in
+            let point = centerPoint(for: cell, layout: layout)
+            return selectedPoints.allSatisfy { distance(point, $0) >= minimumSpacing }
+        }
+
+        guard !filtered.isEmpty else { return nil }
+
+        let scored = filtered.map { cell in
+            let point = centerPoint(for: cell, layout: layout)
+            let openDirections = adjacency[cell, default: []]
+            let branchCount = openDirections.filter { direction in
+                guard let next = neighbor(of: cell, direction: direction, layout: layout) else { return false }
+                return !solutionCells.contains(next)
+            }.count
+            let spacingScore = selectedPoints.map { distance(point, $0) }.min() ?? 220
+            let preferredZoneBonus: CGFloat = preferredZones.isEmpty || preferredZones.contains(holeZone(for: cell, layout: layout)) ? 12 : 0
+            let score = CGFloat(branchCount) * 28 +
+                (isTurnCell(openDirections) ? 18 : 0) +
+                CGFloat(max(openDirections.count - 2, 0)) * 12 +
+                preferredZoneBonus +
+                spacingScore * 0.06
+            return (cell: cell, score: score)
+        }
+
+        return chooseScoredStar(scored, random: &random)?.cell
+    }
+
+    private static func chooseScoredStar(
+        _ scored: [(cell: MazeCell, score: CGFloat)],
+        random: inout SeededGenerator
+    ) -> (cell: MazeCell, score: CGFloat)? {
+        guard !scored.isEmpty else { return nil }
+        let bestScore = scored.map(\.score).max() ?? 0
+        let shortlist = scored.filter { abs($0.score - bestScore) <= 14 }
+        return shortlist[random.nextInt(in: 0...(shortlist.count - 1))]
+    }
+
+    private static func chooseScoredBranchStar(
+        _ scored: [(componentIndex: Int, cell: MazeCell, score: CGFloat)],
+        random: inout SeededGenerator
+    ) -> (componentIndex: Int, cell: MazeCell, score: CGFloat)? {
+        guard !scored.isEmpty else { return nil }
+        let bestScore = scored.map(\.score).max() ?? 0
+        let shortlist = scored.filter { abs($0.score - bestScore) <= 14 }
+        return shortlist[random.nextInt(in: 0...(shortlist.count - 1))]
+    }
+
+    private static func starCellScore(
+        for cell: MazeCell,
+        depths: [MazeCell: Int],
+        layout: MazeLayout,
+        adjacency: [MazeCell: Set<MazeDirection>],
+        selectedPoints: [CGPoint],
+        preferredZones: Set<HoleZone>
+    ) -> CGFloat {
+        let point = centerPoint(for: cell, layout: layout)
+        let openDirections = adjacency[cell, default: []]
+        let zoneBonus: CGFloat = preferredZones.isEmpty || preferredZones.contains(holeZone(for: cell, layout: layout)) ? 18 : 0
+        let depthScore = CGFloat(depths[cell, default: 0]) * 34
+        let deadEndBonus: CGFloat = openDirections.count == 1 ? 30 : 0
+        let turnBonus: CGFloat = isTurnCell(openDirections) ? 16 : 0
+        let corridorBonus: CGFloat = openDirections.count == 2 ? 8 : 0
+        let spacingScore = (selectedPoints.map { distance(point, $0) }.min() ?? 220) * 0.07
+        return zoneBonus + depthScore + deadEndBonus + turnBonus + corridorBonus + spacingScore
+    }
+
+    private static func centerPoint(for cell: MazeCell, layout: MazeLayout) -> CGPoint {
+        let rect = layout.rect(for: cell)
+        return CGPoint(x: rect.midX, y: rect.midY)
     }
 
     private static func leastPopulatedQuadrants(

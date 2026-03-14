@@ -30,7 +30,7 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
     private var preparedNextBoard: MarbleBoardConfiguration?
     private var preparedNextBoardSourceSeed: UInt64?
     private var nextBoardGenerationID = 0
-    private var highestCollectedStarsThisBoard = 0
+    private var committedScore = 0
     private var cancellables: Set<AnyCancellable> = []
 
     var boardAspectRatio: CGFloat {
@@ -74,7 +74,7 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
 
     func replayCurrentBoard() {
         phase = .playing
-        resetStarProgress(for: currentBoard, resetScoreTrackingForBoard: false)
+        resetStarProgress(for: currentBoard)
         motionController.refresh()
         scene.resetMarble(manual: true)
     }
@@ -86,7 +86,7 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
         let previousBoard = currentBoard
         let nextBoard = takePreparedNextBoard(after: previousBoard) ?? Self.generateFreshBoard(after: previousBoard)
         phase = .playing
-        resetStarProgress(for: nextBoard, resetScoreTrackingForBoard: true)
+        resetStarProgress(for: nextBoard)
         motionController.refresh()
         currentBoard = nextBoard
         Self.lastPresentedBoard = nextBoard
@@ -120,12 +120,10 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
         gameplayHintToken = UUID()
     }
 
-    private func resetStarProgress(for board: MarbleBoardConfiguration, resetScoreTrackingForBoard: Bool) {
+    private func resetStarProgress(for board: MarbleBoardConfiguration) {
         roundCollectedStars = 0
         roundTotalStars = board.stars.count
-        if resetScoreTrackingForBoard {
-            highestCollectedStarsThisBoard = 0
-        }
+        totalScore = committedScore
     }
 
     private func takePreparedNextBoard(after board: MarbleBoardConfiguration) -> MarbleBoardConfiguration? {
@@ -201,15 +199,14 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
         case .manualReset:
             phase = .playing
         case let .starsUpdated(collected, total):
-            if collected > highestCollectedStarsThisBoard {
-                totalScore += collected - highestCollectedStarsThisBoard
-                highestCollectedStarsThisBoard = collected
-            }
             roundCollectedStars = collected
             roundTotalStars = total
+            totalScore = committedScore + collected
         case .failed:
             replayCurrentBoard()
         case .success:
+            committedScore += roundCollectedStars
+            totalScore = committedScore
             phase = .success
         }
     }
