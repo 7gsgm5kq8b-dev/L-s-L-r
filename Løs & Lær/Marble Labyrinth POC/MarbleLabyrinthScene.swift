@@ -14,6 +14,7 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
     let goalRect: CGRect
     let wallRects: [CGRect]
     let holes: [CGPoint]
+    let stars: [CGPoint]
 
     static func generated(seed: UInt64) -> MarbleBoardConfiguration {
         for attempt in 0..<16 {
@@ -34,7 +35,8 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         startPosition == other.startPosition &&
         goalRect == other.goalRect &&
         wallRects == other.wallRects &&
-        holes == other.holes
+        holes == other.holes &&
+        stars == other.stars
     }
 
     func hasSameMazeTopology(as other: MarbleBoardConfiguration) -> Bool {
@@ -160,7 +162,7 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
 
         let boardSize = CGSize(width: 1280, height: 860)
         let borderThickness: CGFloat = 42
-        let marbleRadius: CGFloat = 28
+        let marbleRadius: CGFloat = 25.2
         let holeRadius: CGFloat = 24
         let boardRect = CGRect(origin: .zero, size: boardSize)
         let innerRect = boardRect.insetBy(dx: borderThickness, dy: borderThickness)
@@ -202,6 +204,15 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
             startPosition: startPosition,
             goalRect: goalRect
         )
+        let stars = makeMazeStars(
+            random: &random,
+            layout: layout,
+            solutionPath: solutionPath,
+            holes: holes,
+            holeRadius: holeRadius,
+            startPosition: startPosition,
+            goalRect: goalRect
+        )
 
         let board = MarbleBoardConfiguration(
             id: "board_seed_\(seed)",
@@ -214,7 +225,8 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
             startPosition: startPosition,
             goalRect: goalRect,
             wallRects: wallRects,
-            holes: holes
+            holes: holes,
+            stars: stars
         )
 
         return isValid(
@@ -242,7 +254,8 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
                         startPosition: board.startPosition,
                         goalRect: board.goalRect,
                         wallRects: board.wallRects,
-                        holes: board.holes
+                        holes: board.holes,
+                        stars: board.stars
                     )
                 }
             }
@@ -263,7 +276,8 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
                         startPosition: board.startPosition,
                         goalRect: board.goalRect,
                         wallRects: board.wallRects,
-                        holes: board.holes
+                        holes: board.holes,
+                        stars: board.stars
                     )
                 }
             }
@@ -283,7 +297,8 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
                     startPosition: board.startPosition,
                     goalRect: board.goalRect,
                     wallRects: board.wallRects,
-                    holes: board.holes
+                    holes: board.holes,
+                    stars: board.stars
                 )
             }
         }
@@ -291,17 +306,68 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         preconditionFailure("Unable to generate Marble Labyrinth board")
     }
 
+    private static func makeMazeStars(
+        random: inout SeededGenerator,
+        layout: MazeLayout,
+        solutionPath: [MazeCell],
+        holes: [CGPoint],
+        holeRadius: CGFloat,
+        startPosition: CGPoint,
+        goalRect: CGRect
+    ) -> [CGPoint] {
+        guard solutionPath.count > 3 else { return [] }
+
+        let goalCenter = CGPoint(x: goalRect.midX, y: goalRect.midY)
+        let primaryCandidates = Array(solutionPath.dropFirst(2).dropLast(2))
+        let fallbackCandidates = Array(solutionPath.dropFirst(1).dropLast(1))
+        let rawCandidates = primaryCandidates.isEmpty ? fallbackCandidates : primaryCandidates
+        let uniqueCandidates = uniqueCells(rawCandidates)
+
+        let candidates = uniqueCandidates.filter { cell in
+            let rect = layout.rect(for: cell)
+            let point = CGPoint(x: rect.midX, y: rect.midY)
+            return distance(point, startPosition) > 150 &&
+                distance(point, goalCenter) > 150 &&
+                holes.allSatisfy { distance(point, $0) > holeRadius + 62 }
+        }
+
+        let starCount = 5
+        guard candidates.count >= starCount else { return [] }
+
+        var stars: [CGPoint] = []
+        var usedCells: Set<MazeCell> = []
+
+        for slot in 0..<starCount {
+            let startIndex = Int(CGFloat(slot) * CGFloat(candidates.count) / CGFloat(starCount))
+            let endIndex = max(
+                startIndex,
+                Int(CGFloat(slot + 1) * CGFloat(candidates.count) / CGFloat(starCount)) - 1
+            )
+
+            let bucket = candidates[startIndex...endIndex].filter { !usedCells.contains($0) }
+            let pool = bucket.isEmpty ? candidates.filter { !usedCells.contains($0) } : Array(bucket)
+            guard !pool.isEmpty else { continue }
+            let cell = pool[random.nextInt(in: 0...(pool.count - 1))]
+            usedCells.insert(cell)
+
+            let rect = layout.rect(for: cell)
+            stars.append(CGPoint(x: rect.midX, y: rect.midY))
+        }
+
+        return stars
+    }
+
     private static func makeMazeLayout(innerRect: CGRect, marbleRadius: CGFloat) -> MazeLayout? {
-        let columns = 7
-        let rows = 4
+        let columns = 8
+        let rows = 5
         let wallThickness: CGFloat = 32
-        let horizontalPadding: CGFloat = 48
-        let verticalPadding: CGFloat = 54
+        let horizontalPadding: CGFloat = 24
+        let verticalPadding: CGFloat = 30
         let availableWidth = innerRect.width - horizontalPadding * 2
         let availableHeight = innerRect.height - verticalPadding * 2
         let corridorWidth = floor((availableWidth - CGFloat(columns - 1) * wallThickness) / CGFloat(columns))
         let corridorHeight = floor((availableHeight - CGFloat(rows - 1) * wallThickness) / CGFloat(rows))
-        let minimumCorridor = marbleRadius * 4.1
+        let minimumCorridor = marbleRadius * 4.0
 
         guard corridorWidth >= minimumCorridor, corridorHeight >= minimumCorridor else {
             return nil
@@ -462,7 +528,11 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
             guard startDistances[cell, default: unreachableDistance] > 1 else { return false }
             return goalDistances[cell, default: unreachableDistance] > 1
         }
-        let minimumHoleCount = 6
+        let minimumHoleCount = max(
+            6,
+            Int(ceil(Double(layout.columns * layout.rows) / 5.4)),
+            Int(ceil(Double(solutionPath.count) / 3.0))
+        )
         guard candidateCells.count >= minimumHoleCount else { return [] }
 
         let coverageTargets = routeCoverageTargets(
@@ -473,9 +543,9 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         guard !coverageTargets.isEmpty else { return [] }
 
         let maximumHoleCount = min(
-            8,
+            12,
             max(
-                minimumHoleCount,
+                minimumHoleCount + 1,
                 Int(ceil(Double(coverageTargets.count) * 0.55))
             )
         )
@@ -1089,8 +1159,13 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
         guard board.wallRects.allSatisfy({ !$0.intersects(board.goalRect.insetBy(dx: -16, dy: -16)) }) else { return false }
         guard !board.holes.isEmpty else { return false }
         guard board.holes.count >= 6 else { return false }
+        guard board.stars.count == 5 else { return false }
         guard board.holes.allSatisfy({ innerRect.insetBy(dx: board.holeRadius + 10, dy: board.holeRadius + 10).contains($0) }) else { return false }
         guard board.holes.allSatisfy({ hole in board.wallRects.allSatisfy { !expanded($0, by: board.holeRadius + 4).contains(hole) } }) else { return false }
+        guard board.stars.allSatisfy({ innerRect.insetBy(dx: 20, dy: 20).contains($0) }) else { return false }
+        guard board.stars.allSatisfy({ distance($0, board.startPosition) > 150 }) else { return false }
+        guard board.stars.allSatisfy({ distance($0, CGPoint(x: board.goalRect.midX, y: board.goalRect.midY)) > 150 }) else { return false }
+        guard board.stars.allSatisfy({ star in board.holes.allSatisfy { distance(star, $0) > board.holeRadius + 62 } }) else { return false }
         let wallProximityLimit: CGFloat
         switch mode {
         case .strict:
@@ -2023,6 +2098,7 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         case started
         case marbleStartedMoving
         case manualReset
+        case starsUpdated(collected: Int, total: Int)
         case failed
         case success
     }
@@ -2039,6 +2115,7 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         static let wall: UInt32 = 1 << 1
         static let goal: UInt32 = 1 << 2
         static let hole: UInt32 = 1 << 3
+        static let star: UInt32 = 1 << 4
     }
 
     private enum Tuning {
@@ -2109,6 +2186,10 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         static let marbleEdgeShadow = UIColor(red: 0.41, green: 0.56, blue: 0.72, alpha: 0.18)
         static let marbleBlueReflect = UIColor(red: 0.78, green: 0.89, blue: 0.98, alpha: 0.36)
         static let labelColor = UIColor(red: 0.10, green: 0.24, blue: 0.38, alpha: 1.0)
+        static let collectibleStarFill = UIColor(red: 1.0, green: 0.88, blue: 0.34, alpha: 1.0)
+        static let collectibleStarStroke = UIColor(red: 0.86, green: 0.61, blue: 0.18, alpha: 0.92)
+        static let collectibleStarGlow = UIColor(red: 1.0, green: 0.93, blue: 0.62, alpha: 0.24)
+        static let collectibleStarShadow = UIColor(red: 0.06, green: 0.19, blue: 0.28, alpha: 0.16)
     }
 
     private enum BoardLocationStyle {
@@ -2133,9 +2214,11 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
 
     private var marbleNode: SKShapeNode?
     private var goalNode: SKShapeNode?
+    private var starNodes: [SKNode] = []
     private var gameplayState: GameplayState = .ready
     private var isResolvingContact = false
     private var hasReportedMarbleMovement = false
+    private var collectedStarCount = 0
 
     var boardSeed: UInt64 {
         board.boardSeed
@@ -2191,7 +2274,8 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         marbleNode.physicsBody?.velocity = .zero
         marbleNode.physicsBody?.angularVelocity = 0
         marbleNode.physicsBody?.collisionBitMask = PhysicsCategory.wall
-        marbleNode.physicsBody?.contactTestBitMask = PhysicsCategory.goal | PhysicsCategory.hole
+        marbleNode.physicsBody?.contactTestBitMask = PhysicsCategory.goal | PhysicsCategory.hole | PhysicsCategory.star
+        resetStars(notify: true)
         gameplayState = .playing
         if manual {
             eventHandler?(.manualReset)
@@ -2203,6 +2287,8 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
 
         if combined == (PhysicsCategory.marble | PhysicsCategory.goal) {
             handleGoalReached()
+        } else if combined == (PhysicsCategory.marble | PhysicsCategory.star) {
+            handleStarCollected(contact)
         } else if combined == (PhysicsCategory.marble | PhysicsCategory.hole) {
             handleHoleReached()
         }
@@ -2212,6 +2298,7 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         gameplayState = .playing
         hasReportedMarbleMovement = false
         resetGoalPresentation()
+        resetStars(notify: true)
         marbleNode?.physicsBody?.isDynamic = true
         marbleNode?.physicsBody?.velocity = .zero
         marbleNode?.physicsBody?.angularVelocity = 0
@@ -2320,6 +2407,10 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         for holeCenter in board.holes {
             addWhirlpool(at: holeCenter)
         }
+
+        for (index, starCenter) in board.stars.enumerated() {
+            addCollectibleStar(at: starCenter, index: index)
+        }
     }
 
     private func createMarble() {
@@ -2397,7 +2488,7 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         physicsBody.usesPreciseCollisionDetection = true
         physicsBody.categoryBitMask = PhysicsCategory.marble
         physicsBody.collisionBitMask = PhysicsCategory.wall
-        physicsBody.contactTestBitMask = PhysicsCategory.goal | PhysicsCategory.hole
+        physicsBody.contactTestBitMask = PhysicsCategory.goal | PhysicsCategory.hole | PhysicsCategory.star
         marble.physicsBody = physicsBody
 
         marbleNode = marble
@@ -2468,6 +2559,48 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         goalNode?.removeAction(forKey: "goalCelebrate")
         goalNode?.setScale(1)
         goalNode?.alpha = 1
+    }
+
+    private func resetStars(notify: Bool) {
+        collectedStarCount = 0
+        for starNode in starNodes {
+            starNode.removeAllActions()
+            starNode.alpha = 1
+            starNode.setScale(1)
+            starNode.zRotation = 0
+            starNode.isHidden = false
+            starNode.physicsBody?.categoryBitMask = PhysicsCategory.star
+            starNode.physicsBody?.collisionBitMask = 0
+            starNode.physicsBody?.contactTestBitMask = PhysicsCategory.marble
+        }
+
+        if notify {
+            eventHandler?(.starsUpdated(collected: 0, total: board.stars.count))
+        }
+    }
+
+    private func handleStarCollected(_ contact: SKPhysicsContact) {
+        guard gameplayState == .playing else { return }
+        let starNode = contact.bodyA.categoryBitMask == PhysicsCategory.star ? contact.bodyA.node : contact.bodyB.node
+        guard let starNode else { return }
+        guard starNode.physicsBody?.categoryBitMask == PhysicsCategory.star else { return }
+
+        starNode.physicsBody?.categoryBitMask = 0
+        starNode.physicsBody?.collisionBitMask = 0
+        starNode.physicsBody?.contactTestBitMask = 0
+        collectedStarCount += 1
+
+        let collect = SKAction.group([
+            .scale(to: 1.28, duration: 0.16),
+            .fadeOut(withDuration: 0.16),
+            .rotate(byAngle: .pi / 5, duration: 0.16)
+        ])
+        let hide = SKAction.run {
+            starNode.isHidden = true
+        }
+        starNode.run(.sequence([collect, hide]))
+
+        eventHandler?(.starsUpdated(collected: collectedStarCount, total: board.stars.count))
     }
 
     private func capMarbleVelocity() {
@@ -2677,10 +2810,15 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         let style = beamVisualStyle(for: wallRect)
         let isHorizontal = wallRect.width >= wallRect.height
         let majorLength = isHorizontal ? wallRect.width : wallRect.height
-        let minorThickness = isHorizontal ? wallRect.height : wallRect.width
+        let physicalThickness = isHorizontal ? wallRect.height : wallRect.width
+        let visualThickness = max(22, physicalThickness * 0.82)
+        let visualSize = isHorizontal
+            ? CGSize(width: wallRect.width, height: visualThickness)
+            : CGSize(width: visualThickness, height: wallRect.height)
+        let minorThickness = visualThickness
         let shadowSize = isHorizontal
-            ? CGSize(width: max(18, wallRect.width - 4), height: max(18, wallRect.height * 0.84))
-            : CGSize(width: max(18, wallRect.width * 0.84), height: max(18, wallRect.height - 4))
+            ? CGSize(width: max(18, visualSize.width - 4), height: max(18, visualSize.height * 0.82))
+            : CGSize(width: max(18, visualSize.width * 0.82), height: max(18, visualSize.height - 4))
         let shadow = SKShapeNode(rectOf: shadowSize, cornerRadius: style.cornerRadius)
         shadow.fillColor = Theme.beamShadow
         shadow.strokeColor = .clear
@@ -2688,10 +2826,10 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         shadow.zPosition = 1.78
         addChild(shadow)
 
-        let beam = SKShapeNode(rectOf: wallRect.size, cornerRadius: style.cornerRadius)
+        let beam = SKShapeNode(rectOf: visualSize, cornerRadius: style.cornerRadius)
         beam.fillColor = Theme.beamTop
         beam.strokeColor = Theme.beamStroke
-        beam.lineWidth = 3.0
+        beam.lineWidth = 2.4
         beam.zPosition = 2
         beam.physicsBody = SKPhysicsBody(rectangleOf: wallRect.size)
         beam.physicsBody?.isDynamic = false
@@ -2703,23 +2841,23 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
 
         let underside = SKShapeNode(
             rectOf: isHorizontal
-                ? CGSize(width: max(18, wallRect.width - 2), height: max(16, wallRect.height * 0.88))
-                : CGSize(width: max(16, wallRect.width * 0.88), height: max(18, wallRect.height - 2)),
-            cornerRadius: max(10, style.cornerRadius - 2)
+                ? CGSize(width: max(18, visualSize.width - 2), height: max(14, visualSize.height * 0.82))
+                : CGSize(width: max(14, visualSize.width * 0.82), height: max(18, visualSize.height - 2)),
+            cornerRadius: max(8, style.cornerRadius - 2)
         )
         underside.fillColor = Theme.beamSide
         underside.strokeColor = .clear
-        underside.position = isHorizontal ? CGPoint(x: 0, y: -3.0) : CGPoint(x: 2.3, y: -1.6)
+        underside.position = isHorizontal ? CGPoint(x: 0, y: -2.6) : CGPoint(x: 1.8, y: -1.4)
         underside.zPosition = -0.1
         beam.addChild(underside)
 
         let insetStroke = SKShapeNode(
-            rectOf: CGSize(width: max(16, wallRect.width - 10), height: max(16, wallRect.height - 10)),
-            cornerRadius: max(8, style.cornerRadius - 4)
+            rectOf: CGSize(width: max(16, visualSize.width - 10), height: max(14, visualSize.height - 10)),
+            cornerRadius: max(7, style.cornerRadius - 4)
         )
         insetStroke.fillColor = .clear
         insetStroke.strokeColor = Theme.beamInsetStroke
-        insetStroke.lineWidth = 1.1
+        insetStroke.lineWidth = 0.9
         insetStroke.zPosition = 0.08
         beam.addChild(insetStroke)
 
@@ -2758,7 +2896,7 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
                 ? CGPoint(x: majorLength * 0.34, y: style.primaryGrainYOffset)
                 : CGPoint(x: style.primaryGrainYOffset, y: majorLength * 0.34),
             strokeColor: Theme.beamGrain,
-            lineWidth: 1.4
+            lineWidth: 1.2
         )
         centerGrain.zPosition = 0.15
         beam.addChild(centerGrain)
@@ -2772,7 +2910,7 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
                     ? CGPoint(x: majorLength * 0.18, y: style.secondaryGrainYOffset)
                     : CGPoint(x: style.secondaryGrainYOffset, y: majorLength * 0.18),
                 strokeColor: Theme.beamGrain.withAlphaComponent(0.72),
-                lineWidth: 1.1
+                lineWidth: 1.0
             )
             secondaryGrain.zPosition = 0.15
             beam.addChild(secondaryGrain)
@@ -2787,7 +2925,7 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
                     ? CGPoint(x: seamPosition, y: minorThickness * 0.22)
                     : CGPoint(x: minorThickness * 0.22, y: seamPosition),
                 strokeColor: Theme.beamGrain,
-                lineWidth: 1.5
+                lineWidth: 1.25
             )
             seam.zPosition = 0.15
             beam.addChild(seam)
@@ -2801,7 +2939,7 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
                 ? CGPoint(x: majorLength * 0.42, y: -minorThickness * 0.26)
                 : CGPoint(x: minorThickness * 0.26, y: majorLength * 0.42),
             strokeColor: Theme.beamEdgeShade.withAlphaComponent(0.94),
-            lineWidth: 1.3
+            lineWidth: 1.1
         )
         lowerEdgeShade.zPosition = 0.14
         beam.addChild(lowerEdgeShade)
@@ -2814,7 +2952,7 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
                 ? CGPoint(x: majorLength * 0.40, y: minorThickness * 0.22)
                 : CGPoint(x: -minorThickness * 0.22, y: majorLength * 0.40),
             strokeColor: Theme.beamHighlight.withAlphaComponent(0.16),
-            lineWidth: 1.0
+            lineWidth: 0.9
         )
         upperEdgeHighlight.zPosition = 0.14
         beam.addChild(upperEdgeHighlight)
@@ -2834,33 +2972,33 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
                 let key = "\(Int(center.x.rounded())):\(Int(center.y.rounded()))"
                 guard seenCenters.insert(key).inserted else { continue }
 
-                let radius = max(12, min(overlap.width, overlap.height) * 0.62)
-                let shadow = SKShapeNode(circleOfRadius: radius * 0.96)
-                shadow.fillColor = Theme.beamShadow.withAlphaComponent(0.9)
+                let radius = max(9, min(overlap.width, overlap.height) * 0.42)
+                let shadow = SKShapeNode(circleOfRadius: radius * 0.88)
+                shadow.fillColor = Theme.beamShadow.withAlphaComponent(0.68)
                 shadow.strokeColor = .clear
-                shadow.position = CGPoint(x: center.x + 1.4, y: center.y - 2.0)
+                shadow.position = CGPoint(x: center.x + 1.0, y: center.y - 1.4)
                 shadow.zPosition = 1.79
                 addChild(shadow)
 
                 let cap = SKShapeNode(circleOfRadius: radius)
                 cap.fillColor = Theme.beamTop
                 cap.strokeColor = Theme.beamStroke
-                cap.lineWidth = 2.2
+                cap.lineWidth = 1.7
                 cap.position = center
                 cap.zPosition = 2.04
                 addChild(cap)
 
-                let inset = SKShapeNode(circleOfRadius: radius * 0.74)
+                let inset = SKShapeNode(circleOfRadius: radius * 0.66)
                 inset.fillColor = .clear
                 inset.strokeColor = Theme.beamInsetStroke
-                inset.lineWidth = 0.9
+                inset.lineWidth = 0.8
                 inset.zPosition = 0.11
                 cap.addChild(inset)
 
-                let highlight = SKShapeNode(ellipseOf: CGSize(width: radius * 1.28, height: radius * 0.44))
-                highlight.fillColor = Theme.beamHighlight.withAlphaComponent(0.14)
+                let highlight = SKShapeNode(ellipseOf: CGSize(width: radius * 1.12, height: radius * 0.34))
+                highlight.fillColor = Theme.beamHighlight.withAlphaComponent(0.12)
                 highlight.strokeColor = .clear
-                highlight.position = CGPoint(x: -radius * 0.10, y: radius * 0.22)
+                highlight.position = CGPoint(x: -radius * 0.08, y: radius * 0.18)
                 highlight.zPosition = 0.12
                 cap.addChild(highlight)
             }
@@ -2948,6 +3086,54 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         hole.addChild(foamDot)
     }
 
+    private func addCollectibleStar(at center: CGPoint, index: Int) {
+        let container = SKNode()
+        container.position = center
+        container.zPosition = 2.3
+        container.name = "collectible_star_\(index)"
+        container.physicsBody = SKPhysicsBody(circleOfRadius: board.marbleRadius * 0.54)
+        container.physicsBody?.isDynamic = false
+        container.physicsBody?.categoryBitMask = PhysicsCategory.star
+        container.physicsBody?.collisionBitMask = 0
+        container.physicsBody?.contactTestBitMask = PhysicsCategory.marble
+
+        let shadow = SKShapeNode(ellipseOf: CGSize(width: board.marbleRadius * 1.28, height: board.marbleRadius * 0.58))
+        shadow.fillColor = Theme.collectibleStarShadow
+        shadow.strokeColor = .clear
+        shadow.position = CGPoint(x: 0, y: -board.marbleRadius * 0.26)
+        shadow.zPosition = -0.2
+        container.addChild(shadow)
+
+        let glow = SKShapeNode(circleOfRadius: board.marbleRadius * 0.62)
+        glow.fillColor = Theme.collectibleStarGlow
+        glow.strokeColor = .clear
+        glow.zPosition = -0.1
+        container.addChild(glow)
+
+        let star = SKShapeNode(path: starPath(radius: board.marbleRadius * 0.48, points: 5, innerRatio: 0.50))
+        star.fillColor = Theme.collectibleStarFill
+        star.strokeColor = Theme.collectibleStarStroke
+        star.lineWidth = 1.6
+        star.zPosition = 0.1
+        container.addChild(star)
+
+        let innerStar = SKShapeNode(path: starPath(radius: board.marbleRadius * 0.28, points: 5, innerRatio: 0.52))
+        innerStar.fillColor = UIColor.white.withAlphaComponent(0.28)
+        innerStar.strokeColor = .clear
+        innerStar.zPosition = 0.14
+        star.addChild(innerStar)
+
+        let sparkle = SKShapeNode(circleOfRadius: board.marbleRadius * 0.10)
+        sparkle.fillColor = UIColor.white.withAlphaComponent(0.90)
+        sparkle.strokeColor = .clear
+        sparkle.position = CGPoint(x: -board.marbleRadius * 0.12, y: board.marbleRadius * 0.20)
+        sparkle.zPosition = 0.16
+        star.addChild(sparkle)
+
+        starNodes.append(container)
+        addChild(container)
+    }
+
     private func boardLabel(text: String, fontSize: CGFloat) -> SKLabelNode {
         let label = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
         label.text = text
@@ -3010,15 +3196,16 @@ final class MarbleLabyrinthScene: SKScene, SKPhysicsContactDelegate {
         let unit = CGFloat(seed % 97) / 96
         let majorLength = max(wallRect.width, wallRect.height)
         let minorThickness = min(wallRect.width, wallRect.height)
+        let visualThickness = minorThickness * 0.82
 
         return BeamVisualStyle(
-            cornerRadius: max(10, minorThickness * (0.34 + unit * 0.06)),
-            shadowYOffset: -(4.2 + unit * 1.6),
-            highlightInset: max(18, majorLength * (0.10 + unit * 0.04)),
-            highlightYOffset: minorThickness * (0.10 + unit * 0.05),
-            highlightAlpha: 0.12 + unit * 0.08,
-            primaryGrainYOffset: (-minorThickness * 0.08) + (unit * minorThickness * 0.10),
-            secondaryGrainYOffset: minorThickness * (-0.01 + unit * 0.08),
+            cornerRadius: max(8, visualThickness * (0.31 + unit * 0.05)),
+            shadowYOffset: -(3.2 + unit * 1.1),
+            highlightInset: max(20, majorLength * (0.12 + unit * 0.04)),
+            highlightYOffset: visualThickness * (0.08 + unit * 0.04),
+            highlightAlpha: 0.10 + unit * 0.06,
+            primaryGrainYOffset: (-visualThickness * 0.07) + (unit * visualThickness * 0.09),
+            secondaryGrainYOffset: visualThickness * (-0.01 + unit * 0.06),
             seamBias: (unit - 0.5) * majorLength * 0.05
         )
     }

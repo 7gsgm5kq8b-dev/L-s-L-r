@@ -17,6 +17,9 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
     @Published private(set) var gameplayHintToken = UUID()
     @Published private(set) var gameplayHintDismissToken = UUID()
     @Published private(set) var isStartingNextGame = false
+    @Published private(set) var roundCollectedStars = 0
+    @Published private(set) var roundTotalStars = 0
+    @Published private(set) var totalScore = 0
 
     let motionController: MarbleTiltController
 
@@ -27,6 +30,7 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
     private var preparedNextBoard: MarbleBoardConfiguration?
     private var preparedNextBoardSourceSeed: UInt64?
     private var nextBoardGenerationID = 0
+    private var highestCollectedStarsThisBoard = 0
     private var cancellables: Set<AnyCancellable> = []
 
     var boardAspectRatio: CGFloat {
@@ -40,6 +44,7 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
         let board = Self.generateFreshBoard(after: Self.lastPresentedBoard)
         self.motionController = controller
         self.currentBoard = board
+        self.roundTotalStars = board.stars.count
         self.scene = MarbleLabyrinthScene(board: board, motionController: controller)
         attachSceneHandler(to: scene)
         Self.lastPresentedBoard = board
@@ -69,6 +74,7 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
 
     func replayCurrentBoard() {
         phase = .playing
+        resetStarProgress(for: currentBoard, resetScoreTrackingForBoard: false)
         motionController.refresh()
         scene.resetMarble(manual: true)
     }
@@ -80,6 +86,7 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
         let previousBoard = currentBoard
         let nextBoard = takePreparedNextBoard(after: previousBoard) ?? Self.generateFreshBoard(after: previousBoard)
         phase = .playing
+        resetStarProgress(for: nextBoard, resetScoreTrackingForBoard: true)
         motionController.refresh()
         currentBoard = nextBoard
         Self.lastPresentedBoard = nextBoard
@@ -111,6 +118,14 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
         scene = newScene
         sceneReloadToken = UUID()
         gameplayHintToken = UUID()
+    }
+
+    private func resetStarProgress(for board: MarbleBoardConfiguration, resetScoreTrackingForBoard: Bool) {
+        roundCollectedStars = 0
+        roundTotalStars = board.stars.count
+        if resetScoreTrackingForBoard {
+            highestCollectedStarsThisBoard = 0
+        }
     }
 
     private func takePreparedNextBoard(after board: MarbleBoardConfiguration) -> MarbleBoardConfiguration? {
@@ -185,6 +200,13 @@ final class MarbleLabyrinthPOCViewModel: ObservableObject {
             gameplayHintDismissToken = UUID()
         case .manualReset:
             phase = .playing
+        case let .starsUpdated(collected, total):
+            if collected > highestCollectedStarsThisBoard {
+                totalScore += collected - highestCollectedStarsThisBoard
+                highestCollectedStarsThisBoard = collected
+            }
+            roundCollectedStars = collected
+            roundTotalStars = total
         case .failed:
             replayCurrentBoard()
         case .success:
@@ -211,6 +233,8 @@ struct MarbleLabyrinthPOCView: View {
 
     @StateObject private var viewModel = MarbleLabyrinthPOCViewModel()
     @State private var isGameplayHintVisible = true
+    @State private var gameplayHintVisibleUntil = Date.distantPast
+    @State private var gameplayHintSessionID = UUID()
 
     private var shouldShowSimulatorControls: Bool {
 #if targetEnvironment(simulator)
@@ -239,6 +263,8 @@ struct MarbleLabyrinthPOCView: View {
                     boardCard(size: metrics.boardSize)
                         .frame(maxWidth: .infinity)
 
+                    scoreCounter
+
                     if shouldShowSimulatorControls {
                         simulatorControls(width: metrics.simulatorWidth)
                     }
@@ -247,6 +273,10 @@ struct MarbleLabyrinthPOCView: View {
                 .padding(.top, proxy.safeAreaInsets.top + metrics.topBarPadding)
                 .padding(.bottom, max(8, proxy.safeAreaInsets.bottom + metrics.bottomPadding))
                 .padding(.horizontal, metrics.horizontalPadding)
+
+                if viewModel.phase == .success {
+                    successOverlay
+                }
             }
         }
         .navigationBarBackButtonHidden(true)
@@ -257,20 +287,36 @@ struct MarbleLabyrinthPOCView: View {
             viewModel.onDisappear()
         }
         .task(id: viewModel.gameplayHintToken) {
+            let sessionID = UUID()
+            let visibleUntil = Date().addingTimeInterval(5)
+            gameplayHintSessionID = sessionID
+            gameplayHintVisibleUntil = visibleUntil
+
             withAnimation(.easeOut(duration: 0.18)) {
                 isGameplayHintVisible = true
             }
 
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: .seconds(5))
 
             guard !Task.isCancelled else { return }
+            guard gameplayHintSessionID == sessionID else { return }
             withAnimation(.easeOut(duration: 0.45)) {
                 isGameplayHintVisible = false
             }
         }
         .onChange(of: viewModel.gameplayHintDismissToken) { _, _ in
-            withAnimation(.easeOut(duration: 0.24)) {
-                isGameplayHintVisible = false
+            let sessionID = gameplayHintSessionID
+            let remainingDelay = max(0, gameplayHintVisibleUntil.timeIntervalSinceNow)
+
+            Task { @MainActor in
+                if remainingDelay > 0 {
+                    try? await Task.sleep(for: .seconds(remainingDelay))
+                }
+
+                guard gameplayHintSessionID == sessionID else { return }
+                withAnimation(.easeOut(duration: 0.24)) {
+                    isGameplayHintVisible = false
+                }
             }
         }
         .task(id: viewModel.sceneReloadToken) {
@@ -300,14 +346,6 @@ struct MarbleLabyrinthPOCView: View {
                 )
 
                 Spacer(minLength: 10)
-
-                chromeButton(
-                    title: "Nulstil",
-                    systemImage: "arrow.counterclockwise",
-                    fill: Color(red: 1.0, green: 0.90, blue: 0.65).opacity(0.18),
-                    stroke: Color(red: 0.92, green: 0.72, blue: 0.20).opacity(0.22),
-                    action: viewModel.resetBoard
-                )
             }
 
             VStack(spacing: 2) {
@@ -316,17 +354,17 @@ struct MarbleLabyrinthPOCView: View {
                     .foregroundColor(.black.opacity(0.62))
                     .lineLimit(1)
 
-                Text("Vip iPad'en og hjælp kuglen i mål. Pas på hullerne undervejs.")
+                Text("Vip iPad'en og hjælp kuglen i mål. Saml stjerner, men pas på hullerne undervejs.")
                     .font(.system(size: isLandscape ? 11.5 : 12.5, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                    .lineLimit(3)
                     .opacity(isGameplayHintVisible ? 1 : 0)
             }
             .padding(.horizontal, 84)
         }
         .padding(.horizontal, isLandscape ? 8 : 10)
-        .frame(height: isLandscape ? 72 : 80)
+        .frame(height: isLandscape ? 78 : 88)
     }
 
     private func boardCard(size: CGSize) -> some View {
@@ -340,89 +378,60 @@ struct MarbleLabyrinthPOCView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .shadow(color: .black.opacity(0.05), radius: 14, y: 6)
                 .allowsHitTesting(viewModel.phase != .success)
-
-            if viewModel.phase == .success {
-                Color.black.opacity(0.001)
-                    .frame(width: size.width, height: size.height)
-                    .contentShape(Rectangle())
-
-                overlayCard(width: min(size.width * 0.52, 520))
-                    .padding(.horizontal, 18)
-                    .zIndex(1)
-            }
         }
         .frame(width: size.width, height: size.height)
     }
 
-    private func overlayCard(width: CGFloat) -> some View {
+    private var scoreCounter: some View {
+        HStack {
+            Image(systemName: "star.fill")
+                .foregroundColor(.yellow)
+
+            Text("\(viewModel.totalScore)")
+                .font(.title.bold())
+        }
+        .padding(12)
+        .background(Color.black.opacity(0.1))
+        .cornerRadius(12)
+    }
+
+    private var successOverlay: some View {
         ZStack {
-            overlayBackdrop(width: width, isSuccess: true)
+            Color.black.opacity(0.35).ignoresSafeArea()
 
             VStack(spacing: 14) {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                    Text("Du fandt målet!")
+                HStack(spacing: 10) {
+                    ForEach(0..<max(viewModel.roundTotalStars, 1), id: \.self) { index in
+                        Image(systemName: index < viewModel.roundCollectedStars ? "star.fill" : "star")
+                            .foregroundColor(.yellow)
+                            .font(.system(size: 28, weight: .bold))
+                    }
                 }
-                .font(.system(size: 31, weight: .heavy, design: .rounded))
-                .foregroundStyle(Color(red: 0.73, green: 0.47, blue: 0.09))
+                .padding(.bottom, 4)
+
+                Text("Du fandt målet!")
+                    .font(.largeTitle.bold())
+                    .foregroundColor(.white)
 
                 Text("Kuglen klarede banen.")
-                    .font(.title3.weight(.bold))
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.black.opacity(0.70))
+                    .font(.title3.weight(.semibold))
+                    .foregroundColor(.white.opacity(0.88))
 
-                overlayActionButton(
-                    title: "Prøv igen",
-                    systemImage: "arrow.clockwise",
-                    fill: Color(red: 1.0, green: 0.84, blue: 0.43),
-                    stroke: Color(red: 0.93, green: 0.66, blue: 0.16).opacity(0.42),
-                    action: viewModel.startNextGame
-                )
-                .padding(.top, 2)
+                Button(action: viewModel.startNextGame) {
+                    Text("Prøv igen")
+                        .font(.headline.bold())
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 32)
+                        .background(Color.white)
+                        .foregroundColor(.green)
+                        .cornerRadius(14)
+                        .shadow(radius: 4)
+                }
                 .disabled(viewModel.isStartingNextGame)
                 .opacity(viewModel.isStartingNextGame ? 0.72 : 1)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 18)
-            .frame(maxWidth: width)
+            .padding()
         }
-        .shadow(
-            color: Color(red: 1.0, green: 0.78, blue: 0.26).opacity(0.12),
-            radius: 22,
-            y: 12
-        )
-    }
-
-    private func overlayBackdrop(width: CGFloat, isSuccess: Bool) -> some View {
-        ZStack {
-            Ellipse()
-                .fill(Color.white.opacity(isSuccess ? 0.28 : 0.24))
-                .frame(width: width * 0.96, height: 188)
-                .blur(radius: 10)
-
-            Ellipse()
-                .fill(
-                    LinearGradient(
-                        colors: isSuccess
-                            ? [Color.white.opacity(0.92), Color(red: 1.0, green: 0.96, blue: 0.80).opacity(0.84)]
-                            : [Color.white.opacity(0.88), Color(red: 0.91, green: 0.97, blue: 1.0).opacity(0.80)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: width * 0.92, height: 172)
-
-            Circle()
-                .fill(Color.white.opacity(isSuccess ? 0.24 : 0.18))
-                .frame(width: 86, height: 86)
-                .offset(x: -width * 0.18, y: -40)
-
-            Circle()
-                .fill((isSuccess ? Color(red: 1.0, green: 0.92, blue: 0.58) : Color(red: 0.78, green: 0.93, blue: 1.0)).opacity(0.18))
-                .frame(width: 62, height: 62)
-                .offset(x: width * 0.22, y: -28)
-        }
-        .allowsHitTesting(false)
     }
 
     private func boardHeroBackdrop(size: CGSize) -> some View {
@@ -506,7 +515,8 @@ struct MarbleLabyrinthPOCView: View {
         let boardAspectRatio = max(viewModel.boardAspectRatio, 1.0)
         let topBarHeight: CGFloat = isLandscape ? 72 : 80
         let simulatorHeight: CGFloat = shouldShowSimulatorControls ? (isLandscape ? 196 : 220) : 0
-        let verticalChrome: CGFloat = isLandscape ? 18 : 24
+        let scoreCounterHeight: CGFloat = 54
+        let verticalChrome: CGFloat = (isLandscape ? 18 : 24) + scoreCounterHeight
         let maxBoardHeight = max(220, safeHeight - topBarHeight - simulatorHeight - verticalChrome)
         let boardWidth = min(contentWidth, maxBoardHeight * boardAspectRatio)
         let boardHeight = boardWidth / boardAspectRatio
