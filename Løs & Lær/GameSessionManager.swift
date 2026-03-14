@@ -15,8 +15,13 @@ class GameSessionManager: ObservableObject {
         allGameScore = 0
     }
 
+    func add(points: Int) {
+        guard points != 0 else { return }
+        allGameScore += points
+    }
+
     func increment() {
-        allGameScore += 1
+        add(points: 1)
     }
 }
 

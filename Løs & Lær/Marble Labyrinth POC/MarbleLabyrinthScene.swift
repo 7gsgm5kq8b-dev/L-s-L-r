@@ -168,7 +168,7 @@ struct MarbleBoardConfiguration: Identifiable, Equatable {
 
         let boardSize = CGSize(width: 1280, height: 860)
         let borderThickness: CGFloat = 42
-        let marbleRadius: CGFloat = 25.2
+        let marbleRadius: CGFloat = 22.68
         let holeRadius: CGFloat = 24
         let boardRect = CGRect(origin: .zero, size: boardSize)
         let innerRect = boardRect.insetBy(dx: borderThickness, dy: borderThickness)

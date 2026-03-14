@@ -28,6 +28,7 @@ let enabledGames: [GameSelection] = [
     .labyrinthLetters,
     .labyrinthMath,
     .labyrinthWords,
+    .marbleLabyrinthPOC,
     .animals,
     .ticTacToe,
     .memoryMatch,
@@ -98,6 +99,7 @@ struct ContentView: View {
                     onExit: { selectedGame = .none },
                     onBackToHub: { selectedGame = .none }
                 )
+                .environmentObject(session)
                 .ignoresSafeArea()
 
             case .animals:

@@ -14,18 +14,28 @@ struct AllGamesModeView: View {
     let onExit: () -> Void
 
     @StateObject var session = GameSessionManager()
-    
+
     // Kun de spil, der er aktive (kilde)
     private var activeGames: [GameSelection] {
         enabledGames.filter { $0 != .none }
     }
 
     @State private var currentIndex: Int = 0
-    @State private var shuffledGames: [GameSelection] = []
+    @State private var shuffledGames: [GameSelection]
 
     // Husk sidste Labyrinth-mode på tværs af runder
     private static var lastLabyrinthMode: GameMode = .words
 
+    init(difficulty: Difficulty, onExit: @escaping () -> Void) {
+        self.difficulty = difficulty
+        self.onExit = onExit
+        _shuffledGames = State(initialValue: enabledGames.filter { $0 != .none }.shuffled())
+    }
+
+    private var currentGame: GameSelection? {
+        guard shuffledGames.indices.contains(currentIndex) else { return nil }
+        return shuffledGames[currentIndex]
+    }
 
     var body: some View {
         if activeGames.isEmpty {
@@ -33,28 +43,24 @@ struct AllGamesModeView: View {
                 Text("Ingen spil er aktiveret endnu.")
                 Button("Tilbage") { onExit() }
             }
-        } else {
-            let currentGame = shuffledGames.isEmpty ? activeGames[currentIndex] : shuffledGames[currentIndex]
-
-
+        } else if let currentGame {
             ZStack {
                 switch currentGame {
-
                 case .labyrinthLetters:
                     LabyrinthGameView(
                         difficulty: difficulty,
                         randomizeInternalModes: false,              // rotation inde i Labyrint
-                        startImmediately: true,                     //⭐ vigtig: tving AllGames‑mode
+                        startImmediately: true,                     //⭐ vigtig: tving AllGames-mode
                         initialMode: consumeNextLabyrinthMode(),
-                        onExit: {                                   //Next game in totation
+                        onExit: {                                   // Next game in rotation
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                 nextGame()
                             }
                         },
                         onBackToHub: onExit                         // tilbage til hub
                     )
-                    .environmentObject(session)   // ⭐ Global scopre
-                    
+                    .environmentObject(session)   // ⭐ Global score
+
                 case .labyrinthMath:
                     LabyrinthGameView(
                         difficulty: difficulty,
@@ -68,8 +74,8 @@ struct AllGamesModeView: View {
                         },
                         onBackToHub: onExit
                     )
-                    .environmentObject(session)   // ⭐ Global scopre
-                    
+                    .environmentObject(session)   // ⭐ Global score
+
                 case .labyrinthWords:
                     LabyrinthGameView(
                         difficulty: difficulty,
@@ -83,8 +89,8 @@ struct AllGamesModeView: View {
                         },
                         onBackToHub: onExit
                     )
-                    .environmentObject(session)   // ⭐ Global scopre
-                    
+                    .environmentObject(session)   // ⭐ Global score
+
                 case .animals:
                     AnimalGameView(
                         difficulty: difficulty,
@@ -96,25 +102,39 @@ struct AllGamesModeView: View {
                         },
                         onBackToHub: onExit
                     )
-                    .environmentObject(session)   // ⭐ Global scopre
-                    
+                    .environmentObject(session)   // ⭐ Global score
+
+                case .marbleLabyrinthPOC:
+                    MarbleLabyrinthGameControllerContainer(
+                        difficulty: difficulty,
+                        startImmediately: true,
+                        onExit: {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                nextGame(scoreIncrement: 0)
+                            }
+                        },
+                        onBackToHub: onExit
+                    )
+                    .environmentObject(session)
+                    .ignoresSafeArea()
+
                 case .clock:
-                        ClockGameView(
-                            difficulty: difficulty,
-                            startImmediately: true,
-                            onExit: {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                    nextGame()
-                                }
-                            },
-                            onBackToHub: onExit
-                        )
-                        .environmentObject(session)   // ⭐ Global scopre
-                    
+                    ClockGameView(
+                        difficulty: difficulty,
+                        startImmediately: true,
+                        onExit: {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                nextGame()
+                            }
+                        },
+                        onBackToHub: onExit
+                    )
+                    .environmentObject(session)   // ⭐ Global score
+
                 case .ticTacToe:
                     TicTacToeView(
                         difficulty: difficulty,
-                        startImmediately: true,     // ⭐ vigtig: tving AllGames‑mode
+                        startImmediately: true,     // ⭐ vigtig: tving AllGames-mode
                         onExit: {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                 nextGame()
@@ -127,7 +147,7 @@ struct AllGamesModeView: View {
                 case .memoryMatch:
                     MemoryMatchView(
                         difficulty: difficulty,
-                        startImmediately: true, // ⭐ tving AllGames‑mode til at starte direkte
+                        startImmediately: true, // ⭐ tving AllGames-mode til at starte direkte
                         onExit: {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                 nextGame()
@@ -137,7 +157,6 @@ struct AllGamesModeView: View {
                     )
                     .environmentObject(session) // vigtig: del global session (global score)
 
-                    
                 default:
                     EmptyView()
                 }
@@ -145,20 +164,24 @@ struct AllGamesModeView: View {
             .onAppear {
                 print("ACTIVE GAMES:", activeGames)
                 session.resetAllGameScore()   // ⭐ reset global score
-                if shuffledGames.isEmpty {
-                    shuffledGames = activeGames.shuffled()
-                    currentIndex = 0
-                }
             }
+        } else {
+            Color.clear
+                .onAppear {
+                    if shuffledGames.isEmpty {
+                        shuffledGames = activeGames.shuffled()
+                        currentIndex = 0
+                    }
+                }
         }
     }
 
-    private func nextGame() {
+    private func nextGame(scoreIncrement: Int = 1) {
         guard !activeGames.isEmpty else { return }
 
         // ⭐ Increment global score for hvert afsluttet spil
-        session.increment()
-        
+        session.add(points: scoreIncrement)
+
         // Hvis vi ikke har en shuffle endnu, så lav en
         if shuffledGames.isEmpty {
             shuffledGames = activeGames.shuffled()
@@ -177,8 +200,7 @@ struct AllGamesModeView: View {
         }
     }
 
-
-    // Rotation: letters → math → words → letters → ...
+    // Rotation: letters -> math -> words -> letters -> ...
     private func consumeNextLabyrinthMode() -> GameMode {
         let next: GameMode
         switch AllGamesModeView.lastLabyrinthMode {

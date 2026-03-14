@@ -228,6 +228,7 @@ struct MarbleLabyrinthPOCView: View {
     let onExit: () -> Void
     let onBackToHub: () -> Void
 
+    @EnvironmentObject var session: GameSessionManager
     @StateObject private var viewModel = MarbleLabyrinthPOCViewModel()
     @State private var isGameplayHintVisible = true
     @State private var gameplayHintVisibleUntil = Date.distantPast
@@ -239,6 +240,10 @@ struct MarbleLabyrinthPOCView: View {
 #else
         false
 #endif
+    }
+
+    private var displayedScore: Int {
+        startImmediately ? session.allGameScore + viewModel.roundCollectedStars : viewModel.totalScore
     }
 
     var body: some View {
@@ -339,7 +344,7 @@ struct MarbleLabyrinthPOCView: View {
                     systemImage: "chevron.left",
                     fill: Color.white.opacity(0.14),
                     stroke: Color.white.opacity(0.18),
-                    action: onExit
+                    action: onBackToHub
                 )
 
                 Spacer(minLength: 10)
@@ -384,7 +389,7 @@ struct MarbleLabyrinthPOCView: View {
             Image(systemName: "star.fill")
                 .foregroundColor(.yellow)
 
-            Text("\(viewModel.totalScore)")
+            Text("\(displayedScore)")
                 .font(.title.bold())
         }
         .padding(12)
@@ -414,7 +419,14 @@ struct MarbleLabyrinthPOCView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundColor(.white.opacity(0.88))
 
-                Button(action: viewModel.startNextGame) {
+                Button(action: {
+                    if startImmediately {
+                        session.add(points: viewModel.roundCollectedStars)
+                        onExit()
+                    } else {
+                        viewModel.startNextGame()
+                    }
+                }) {
                     Text("Prøv igen")
                         .font(.headline.bold())
                         .padding(.vertical, 10)

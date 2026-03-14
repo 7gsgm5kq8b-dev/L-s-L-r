@@ -83,6 +83,8 @@ enum MarbleOrientationLock {
 }
 
 struct MarbleLabyrinthGameControllerContainer: UIViewControllerRepresentable {
+    @EnvironmentObject var session: GameSessionManager
+
     let difficulty: Difficulty
     let startImmediately: Bool
     let onExit: () -> Void
@@ -90,6 +92,7 @@ struct MarbleLabyrinthGameControllerContainer: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> MarbleLabyrinthGameEntryController {
         MarbleLabyrinthGameEntryController(
+            session: session,
             difficulty: difficulty,
             startImmediately: startImmediately,
             onExit: onExit,
@@ -99,6 +102,7 @@ struct MarbleLabyrinthGameControllerContainer: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: MarbleLabyrinthGameEntryController, context: Context) {
         uiViewController.updateConfiguration(
+            session: session,
             difficulty: difficulty,
             startImmediately: startImmediately,
             onExit: onExit,
@@ -108,6 +112,7 @@ struct MarbleLabyrinthGameControllerContainer: UIViewControllerRepresentable {
 }
 
 final class MarbleLabyrinthGameEntryController: UIViewController {
+    private var session: GameSessionManager
     private var difficulty: Difficulty
     private var startImmediately: Bool
     private var onExit: () -> Void
@@ -118,11 +123,13 @@ final class MarbleLabyrinthGameEntryController: UIViewController {
     private var didFinishSession = false
 
     init(
+        session: GameSessionManager,
         difficulty: Difficulty,
         startImmediately: Bool,
         onExit: @escaping () -> Void,
         onBackToHub: @escaping () -> Void
     ) {
+        self.session = session
         self.difficulty = difficulty
         self.startImmediately = startImmediately
         self.onExit = onExit
@@ -146,11 +153,13 @@ final class MarbleLabyrinthGameEntryController: UIViewController {
     }
 
     func updateConfiguration(
+        session: GameSessionManager,
         difficulty: Difficulty,
         startImmediately: Bool,
         onExit: @escaping () -> Void,
         onBackToHub: @escaping () -> Void
     ) {
+        self.session = session
         self.difficulty = difficulty
         self.startImmediately = startImmediately
         self.onExit = onExit
@@ -172,16 +181,19 @@ final class MarbleLabyrinthGameEntryController: UIViewController {
         }
     }
 
-    private func makeRootView() -> MarbleLabyrinthPOCView {
-        MarbleLabyrinthPOCView(
-            difficulty: difficulty,
-            startImmediately: startImmediately,
-            onExit: { [weak self] in
-                self?.finishSession(backToHub: false)
-            },
-            onBackToHub: { [weak self] in
-                self?.finishSession(backToHub: true)
-            }
+    private func makeRootView() -> AnyView {
+        AnyView(
+            MarbleLabyrinthPOCView(
+                difficulty: difficulty,
+                startImmediately: startImmediately,
+                onExit: { [weak self] in
+                    self?.finishSession(backToHub: false)
+                },
+                onBackToHub: { [weak self] in
+                    self?.finishSession(backToHub: true)
+                }
+            )
+            .environmentObject(session)
         )
     }
 
@@ -202,7 +214,7 @@ final class MarbleLabyrinthGameEntryController: UIViewController {
     }
 }
 
-final class MarbleLabyrinthGameHostingController: UIHostingController<MarbleLabyrinthPOCView> {
+final class MarbleLabyrinthGameHostingController: UIHostingController<AnyView> {
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         MarbleOrientationLock.gameplayMask
     }
